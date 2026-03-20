@@ -1,0 +1,22 @@
+{
+  "name": "reno-signalstack",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @signalstack/web",
+    "dev:gateway": "npm run dev -w @signalstack/gateway-api",
+    "dev": "concurrently -n web,gateway \"npm run dev:web\" \"npm run dev:gateway\"",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@signalstack/gateway-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/websocket": "^11.2.0",
+    "@signalstack/config": "file:../../packages/config",
+    "@signalstack/contracts": "file:../../packages/contracts",
+    "@signalstack/policy": "file:../../packages/policy",
+    "@sinclair/typebox": "^0.34.41",
+    "dotenv": "^17.3.1",
+    "fastify": "^5.6.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

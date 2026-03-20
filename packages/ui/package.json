@@ -1,0 +1,13 @@
+{
+  "name": "@signalstack/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "dependencies": {
+    "@signalstack/contracts": "file:../contracts",
+    "react": "^19.1.1"
+  }
+}

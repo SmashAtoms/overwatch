@@ -1,0 +1,17 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.venv
+__pycache__
+*.pyc
+*.log
+*.tsbuildinfo
+*.egg-info
+.env
+.env.local
+apps/web/.next
+apps/gateway-api/dist
+services/nlp/.venv
+tmp

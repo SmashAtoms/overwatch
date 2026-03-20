@@ -1,0 +1,50 @@
+# Information Stack Event Model
+
+```json
+{
+  "$id": "InformationStack",
+  "type": "object",
+  "required": ["id", "title", "timeWindow", "centroid", "sources", "confidence", "summary", "evidence"],
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "status": { "enum": ["live", "recent", "resolved", "stale"] },
+    "timeWindow": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" }
+      }
+    },
+    "centroid": {
+      "type": "object",
+      "properties": {
+        "lon": { "type": "number" },
+        "lat": { "type": "number" },
+        "altM": { "type": ["number", "null"] }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": { "enum": ["aircraft", "atc", "scanner", "weather", "camera"] }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "summary": { "type": "string" },
+    "plainEnglish": { "type": "string" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sourceType", "sourceId"],
+        "properties": {
+          "sourceType": { "type": "string" },
+          "sourceId": { "type": "string" },
+          "reason": { "type": "string" },
+          "weight": { "type": "number" }
+        }
+      }
+    }
+  }
+}
+```

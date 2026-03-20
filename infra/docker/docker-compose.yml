@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_DB: signalstack
+      POSTGRES_USER: signalstack
+      POSTGRES_PASSWORD: signalstack
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7.4
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: signalstack
+      MINIO_ROOT_PASSWORD: signalstack123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3100:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+  gateway-api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/gateway-api.Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      HOST: 0.0.0.0
+    depends_on:
+      - postgres
+      - redis
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_API_URL: http://gateway-api:4000
+    depends_on:
+      - gateway-api
+
+  nlp:
+    build:
+      context: ../..
+      dockerfile: infra/docker/nlp.Dockerfile
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres-data:
+  minio-data:
+  grafana-data:

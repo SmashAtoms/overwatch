@@ -1,0 +1,31 @@
+{
+  "name": "@signalstack/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@signalstack/config": "file:../../packages/config",
+    "@signalstack/contracts": "file:../../packages/contracts",
+    "@signalstack/map-core": "file:../../packages/map-core",
+    "@signalstack/policy": "file:../../packages/policy",
+    "@signalstack/ui": "file:../../packages/ui",
+    "cesium": "^1.133.1",
+    "hls.js": "^1.6.13",
+    "leaflet": "^1.9.4",
+    "next": "^15.5.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/google.maps": "^3.58.1",
+    "@types/leaflet": "^1.9.18",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "typescript": "^5.9.2"
+  }
+}

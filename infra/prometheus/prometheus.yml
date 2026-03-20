@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: gateway-api
+    static_configs:
+      - targets: ["gateway-api:4000"]
+  - job_name: nlp
+    metrics_path: /health
+    static_configs:
+      - targets: ["nlp:8000"]
