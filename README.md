@@ -35,6 +35,41 @@ The current MVP map also includes a live doppler weather toggle using NOAA/NCEP 
 
 To load official Nevada 511 camera markers into the map, also set `NEVADA_511_API_KEY` in the gateway environment. Without that key, the app falls back to a minimal built-in camera list.
 
+To place an authorized scanner player directly on the dashboard, set:
+
+```bash
+NEXT_PUBLIC_BROADCASTIFY_EMBED_URL=https://your-approved-broadcastify-embed-url
+```
+
+The app will only activate the on-page scanner embed when you provide an approved embeddable player URL. Public Broadcastify listen pages are not treated as embeddable by default.
+
+To enable AeroDataBox webhook subscriptions by flight number, also set:
+
+```bash
+RAPIDAPI_AERODATABOX_KEY=...
+PUBLIC_WEBHOOK_BASE_URL=https://your-public-signalstack-host
+```
+
+Then call the gateway endpoint:
+
+```bash
+curl --request POST \
+  --url http://localhost:4000/api/v1/integrations/aerodatabox/subscriptions/flight-by-number/KL1395 \
+  --header "Content-Type: application/json" \
+  --data "{\"maxDeliveryRetries\":0}"
+```
+
+If you do not set `PUBLIC_WEBHOOK_BASE_URL`, you can still provide the webhook URL directly:
+
+```bash
+curl --request POST \
+  --url http://localhost:4000/api/v1/integrations/aerodatabox/subscriptions/flight-by-number/KL1395 \
+  --header "Content-Type: application/json" \
+  --data "{\"webhookUrl\":\"https://your-public-url/api/v1/webhooks/aerodatabox/flight-by-number\",\"maxDeliveryRetries\":0}"
+```
+
+Recent webhook deliveries can be inspected at `GET /api/v1/webhooks/aerodatabox/flight-by-number`.
+
 ### Python NLP service
 
 ```bash

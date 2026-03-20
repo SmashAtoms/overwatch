@@ -2,7 +2,6 @@ import { DEFAULT_REGION, type CameraSource } from "@signalstack/contracts";
 import { cameras as fallbackCameras } from "./data.js";
 
 const RENO_CAMERA_RADIUS_MILES = 50;
-const ALLOWED_HIGHWAY_PATTERNS = [/\bI-?80\b/i, /\bUS-?395\b/i, /\b395\b/i];
 
 type Nevada511CameraView = {
   Id: number;
@@ -81,16 +80,8 @@ function inRenoCameraRadius(camera: Nevada511Camera): boolean {
   return distanceMiles <= RENO_CAMERA_RADIUS_MILES;
 }
 
-function matchesAllowedHighway(roadway: string | null): boolean {
-  if (!roadway) {
-    return false;
-  }
-
-  return ALLOWED_HIGHWAY_PATTERNS.some((pattern) => pattern.test(roadway));
-}
-
 function isAllowedRenoCamera(camera: Nevada511Camera): boolean {
-  return inDefaultRegion(camera) && inRenoCameraRadius(camera) && matchesAllowedHighway(camera.Roadway);
+  return inDefaultRegion(camera) && inRenoCameraRadius(camera);
 }
 
 function normalizeRoadway(roadway: string | null): string | null {
@@ -105,12 +96,20 @@ function normalizeRoadway(roadway: string | null): string | null {
     .trim();
 }
 
+function normalizeComparable(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function isMeaningfulLabel(value: string | null): value is string {
+  return Boolean(value && value !== "Unknown" && value !== "N/A");
+}
+
 function cleanCameraName(camera: Nevada511Camera): string {
   const roadway = normalizeRoadway(camera.Roadway);
   const direction = camera.Direction && camera.Direction !== "Unknown" ? camera.Direction : null;
-  const location = camera.Location && camera.Location !== "Unknown" ? camera.Location.trim() : null;
+  const location = isMeaningfulLabel(camera.Location) ? normalizeRoadway(camera.Location.trim()) : null;
 
-  if (location && roadway && location.toLowerCase().includes(roadway.toLowerCase())) {
+  if (location && roadway && normalizeComparable(location).includes(normalizeComparable(roadway))) {
     return location;
   }
 
@@ -167,12 +166,20 @@ export async function loadCameraSources(): Promise<CameraSource[]> {
     }
 
     const payload = (await response.json()) as Nevada511Camera[];
+    const dedupedCameras = new Map<string, CameraSource>();
     const regionCameras = payload
       .filter(isAllowedRenoCamera)
       .map(toCameraSource)
       .sort((left, right) => left.name.localeCompare(right.name));
 
-    const data = regionCameras.length > 0 ? regionCameras : fallbackCameras;
+    regionCameras.forEach((camera) => {
+      const dedupeKey = `${camera.name}:${camera.point.lat.toFixed(4)}:${camera.point.lon.toFixed(4)}`;
+      if (!dedupedCameras.has(dedupeKey)) {
+        dedupedCameras.set(dedupeKey, camera);
+      }
+    });
+
+    const data = dedupedCameras.size > 0 ? Array.from(dedupedCameras.values()) : fallbackCameras;
 
     cameraCache = {
       expiresAt: Date.now() + CACHE_TTL_MS,

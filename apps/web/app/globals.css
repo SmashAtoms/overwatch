@@ -53,13 +53,14 @@ a {
   flex-direction: column;
   gap: 1rem;
   min-height: 100vh;
-  padding: 1.25rem;
+  padding: 1rem 1.25rem 1.25rem;
 }
 
 .topbar,
 .hero-grid,
 .timeline-grid,
-.content-grid {
+.content-grid,
+.operations-grid {
   display: grid;
   gap: 1rem;
 }
@@ -95,13 +96,41 @@ a {
   align-items: stretch;
 }
 
+.hero-grid-single {
+  grid-template-columns: 1fr;
+}
+
 .timeline-grid {
   grid-template-columns: 1fr;
+}
+
+.operations-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  align-items: stretch;
 }
 
 .content-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: flex-start;
+}
+
+.workspace-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 0.35rem 0 0.15rem;
+}
+
+.workspace-title {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+  line-height: 0.95;
+}
+
+.workspace-subtitle {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
 }
 
 .map-panel,
@@ -126,13 +155,15 @@ a {
 
 .map-viewport {
   display: grid;
-  grid-template-columns: 1.35fr 0.65fr;
+  grid-template-columns: minmax(0, 1.75fr) minmax(360px, 0.72fr);
   gap: 1rem;
   min-height: 26rem;
+  height: min(78vh, 62rem);
 }
 
 .map-stage {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   border: 1px solid rgba(110, 186, 255, 0.18);
   border-radius: 1.25rem;
@@ -144,6 +175,7 @@ a {
 
 .map-stage-live {
   min-height: 30rem;
+  height: 100%;
   background: linear-gradient(180deg, rgba(11, 28, 48, 0.82), rgba(7, 18, 31, 0.95));
 }
 
@@ -152,6 +184,7 @@ a {
   content: "";
   position: absolute;
   inset: 0;
+  pointer-events: none;
 }
 
 .map-stage::before {
@@ -168,26 +201,38 @@ a {
   background-size: 42px 42px;
 }
 
-.map-toolbar {
+.map-control-dock {
   position: absolute;
   top: 1rem;
   left: 1rem;
-  right: 1rem;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+  z-index: 1200;
+  width: min(18rem, calc(100% - 2rem));
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(125, 226, 209, 0.18);
+  background: rgba(5, 15, 27, 0.94);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 34px rgba(2, 8, 16, 0.48);
 }
 
-.map-actions {
-  position: absolute;
-  left: 1rem;
-  right: 1rem;
-  top: 4rem;
-  z-index: 2;
+.map-control-badges {
   display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.map-control-section {
+  display: grid;
   gap: 0.55rem;
+}
+
+.map-control-section strong {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .map-action-group {
@@ -200,7 +245,7 @@ a {
   border: 1px solid rgba(125, 226, 209, 0.2);
   background: rgba(5, 15, 27, 0.82);
   color: var(--text);
-  border-radius: 999px;
+  border-radius: 0.9rem;
   padding: 0.5rem 0.8rem;
   font: inherit;
   cursor: pointer;
@@ -217,22 +262,88 @@ a {
   border-color: rgba(89, 199, 255, 0.55);
 }
 
+.map-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 3rem);
+  grid-template-rows: repeat(3, 3rem);
+  gap: 0.35rem;
+  justify-content: start;
+}
+
+.map-dpad-button {
+  border: 1px solid rgba(125, 226, 209, 0.2);
+  background: rgba(5, 15, 27, 0.82);
+  color: var(--text);
+  border-radius: 0.85rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.map-dpad-north {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.map-dpad-west {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.map-dpad-center {
+  grid-column: 2;
+  grid-row: 2;
+  background: rgba(89, 199, 255, 0.22);
+  border-color: rgba(89, 199, 255, 0.45);
+  font-size: 0.75rem;
+}
+
+.map-dpad-east {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.map-dpad-south {
+  grid-column: 2;
+  grid-row: 3;
+}
+
 .map-canvas {
   position: absolute;
   inset: 0;
+  z-index: 0;
+}
+
+.leaflet-container,
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 0;
+}
+
+.map-status-row {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 1100;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-width: calc(100% - 2rem);
+  pointer-events: none;
 }
 
 .map-overlay-state {
   position: absolute;
   left: 1rem;
-  bottom: 1rem;
-  z-index: 2;
+  bottom: 4.4rem;
+  z-index: 1150;
   max-width: 24rem;
   padding: 0.85rem 1rem;
   border-radius: 1rem;
   border: 1px solid rgba(125, 226, 209, 0.18);
   background: rgba(5, 15, 27, 0.82);
   backdrop-filter: blur(16px);
+  pointer-events: none;
 }
 
 .map-overlay-state strong {
@@ -248,13 +359,14 @@ a {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
-  z-index: 2;
-  max-width: 20rem;
+  z-index: 1100;
+  max-width: 18rem;
   padding: 0.85rem 1rem;
   border-radius: 1rem;
   border: 1px solid rgba(125, 226, 209, 0.18);
   background: rgba(5, 15, 27, 0.82);
   backdrop-filter: blur(16px);
+  pointer-events: none;
 }
 
 .map-camera-prompt strong {
@@ -326,9 +438,21 @@ a {
 }
 
 .map-sidepanel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.map-sidepanel-scroll {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.2rem;
 }
 
 .map-sidecard {
@@ -336,6 +460,395 @@ a {
   border-radius: 1rem;
   border: 1px solid var(--panel-border);
   background: rgba(6, 16, 28, 0.84);
+}
+
+.map-sidecard-primary {
+  padding: 1.1rem;
+  background:
+    radial-gradient(circle at top right, rgba(89, 199, 255, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(8, 19, 34, 0.98), rgba(5, 13, 24, 0.98));
+}
+
+.map-sidecard-muted {
+  background: rgba(6, 16, 28, 0.7);
+}
+
+.map-meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.map-meta-list span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.future-module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.future-module-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.future-module-card strong {
+  display: block;
+  margin-bottom: 0.45rem;
+}
+
+.future-module-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.reno-atc-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.reno-atc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reno-atc-kicker {
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.reno-atc-title {
+  display: block;
+  font-size: 1rem;
+}
+
+.reno-atc-subtitle {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+}
+
+.reno-atc-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.reno-atc-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.reno-atc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: rgba(89, 199, 255, 0.16);
+  border: 1px solid rgba(89, 199, 255, 0.32);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.reno-atc-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.reno-atc-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.reno-atc-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.reno-atc-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.reno-atc-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.reno-atc-block {
+  padding: 0.75rem;
+  border-radius: 0.85rem;
+  background: rgba(6, 16, 28, 0.6);
+}
+
+.reno-atc-block label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.reno-atc-empty {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.reno-scanner-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.reno-scanner-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.reno-scanner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reno-scanner-kicker {
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.reno-scanner-title {
+  display: block;
+  font-size: 1rem;
+}
+
+.reno-scanner-subtitle {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+}
+
+.reno-scanner-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.reno-scanner-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.reno-scanner-audio-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(255, 123, 156, 0.08), transparent 32%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.reno-scanner-audio-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reno-scanner-audio-copy {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.reno-scanner-audio-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.reno-scanner-player-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16rem;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.18);
+  background:
+    linear-gradient(180deg, rgba(8, 19, 34, 0.94), rgba(5, 13, 24, 0.98)),
+    radial-gradient(circle at top right, rgba(255, 123, 156, 0.16), transparent 28%);
+}
+
+.reno-scanner-player-frame {
+  width: 100%;
+  min-height: 16rem;
+  border: 0;
+  background: #09121f;
+}
+
+.reno-scanner-player-placeholder {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 28rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.reno-scanner-player-placeholder span {
+  color: var(--muted);
+}
+
+.reno-scanner-player-placeholder code {
+  font-family: Consolas, monospace;
+}
+
+.reno-scanner-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 123, 156, 0.14);
+  border: 1px solid rgba(255, 123, 156, 0.3);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.reno-scanner-meta {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.reno-scanner-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: 0.85rem;
+}
+
+.reno-scanner-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.reno-scanner-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.reno-scanner-card-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.reno-scanner-side-title {
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.reno-scanner-side-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.reno-scanner-block {
+  padding: 0.75rem;
+  border-radius: 0.85rem;
+  background: rgba(6, 16, 28, 0.6);
+}
+
+.reno-scanner-block label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.reno-scanner-entity-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.reno-scanner-code-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.reno-scanner-code-item {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(255, 123, 156, 0.18);
+  background: rgba(255, 123, 156, 0.07);
+}
+
+.reno-scanner-code-item span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.reno-scanner-empty {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
 }
 
 .filter-list {
@@ -401,6 +914,13 @@ a {
   cursor: pointer;
 }
 
+.selected-link-button:disabled,
+.camera-select-button:disabled,
+.map-action-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .selected-link-button-secondary {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(146, 167, 198, 0.28);
@@ -453,6 +973,64 @@ a {
   margin-top: 0.85rem;
 }
 
+.camera-viewer-header-tight {
+  margin-top: 0;
+}
+
+.camera-stage-top {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.camera-panel-kicker {
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.camera-viewer-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.camera-viewer-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.camera-selector-grid {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.camera-controller-card {
+  margin-top: 1rem;
+  padding: 0.95rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.camera-controller-head {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.camera-controller-head strong {
+  margin: 0;
+}
+
+.camera-controller-head small {
+  color: var(--muted);
+}
+
 .camera-select-label {
   display: block;
   margin-top: 0.95rem;
@@ -467,6 +1045,13 @@ a {
   display: flex;
   gap: 0.65rem;
   align-items: center;
+}
+
+.camera-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
 }
 
 .camera-select {
@@ -490,6 +1075,10 @@ a {
   cursor: pointer;
 }
 
+.camera-select-button-primary {
+  background: linear-gradient(180deg, rgba(89, 199, 255, 0.24), rgba(52, 137, 199, 0.22));
+}
+
 .camera-viewer-name {
   font-weight: 600;
 }
@@ -508,12 +1097,20 @@ a {
     radial-gradient(circle at top right, rgba(89, 199, 255, 0.18), transparent 28%);
 }
 
+.camera-viewer-box-primary {
+  min-height: 21rem;
+}
+
 .camera-viewer-media {
   width: 100%;
   min-height: 13rem;
   border: 0;
   object-fit: cover;
   background: #09121f;
+}
+
+.camera-viewer-box-primary .camera-viewer-media {
+  min-height: 21rem;
 }
 
 .camera-video-shell {
@@ -541,6 +1138,10 @@ a {
   color: var(--warning);
 }
 
+.camera-inline-note-danger {
+  color: var(--danger);
+}
+
 .camera-viewer-placeholder {
   display: grid;
   gap: 0.45rem;
@@ -551,6 +1152,63 @@ a {
 
 .camera-viewer-placeholder-title {
   font-weight: 600;
+}
+
+.camera-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2rem;
+  background: rgba(3, 9, 17, 0.78);
+  backdrop-filter: blur(14px);
+}
+
+.camera-popup {
+  position: relative;
+  z-index: 1;
+  width: min(1200px, calc(100vw - 3rem));
+  max-height: calc(100vh - 3rem);
+  overflow: auto;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(120, 162, 212, 0.24);
+  background: linear-gradient(180deg, rgba(8, 19, 34, 0.98), rgba(5, 13, 24, 0.98));
+  box-shadow: var(--shadow);
+}
+
+.camera-popup-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 1rem 1rem 0;
+}
+
+.camera-popup-subtitle {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.camera-popup-close {
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(146, 167, 198, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.camera-popup-stage {
+  padding: 1rem;
+  overflow: hidden;
+}
+
+.camera-popup-stage .camera-viewer-media {
+  min-height: min(72vh, 44rem);
 }
 
 .camera-action-button {
@@ -632,10 +1290,50 @@ a {
   margin: 0;
 }
 
+.aircraft-track-panel {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.aircraft-track-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.aircraft-track-item {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 @media (max-width: 1200px) {
   .hero-grid,
+  .operations-grid,
   .content-grid,
   .map-viewport {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .future-module-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reno-atc-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reno-scanner-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -651,5 +1349,40 @@ a {
 
   .transcript-grid {
     grid-template-columns: 1fr;
+  }
+
+  .map-control-dock {
+    width: calc(100% - 2rem);
+  }
+
+  .camera-select-row,
+  .camera-action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .camera-viewer-header-row {
+    flex-direction: column;
+  }
+
+  .camera-viewer-badges {
+    justify-content: flex-start;
+  }
+
+  .reno-atc-header,
+  .reno-atc-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .reno-scanner-header,
+  .reno-scanner-actions,
+  .reno-scanner-audio-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .reno-scanner-audio-badges {
+    justify-content: flex-start;
   }
 }

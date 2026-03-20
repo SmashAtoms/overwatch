@@ -10,7 +10,8 @@ import {
 import { buildReplayMarks, formatLagLabel, summarizeLayerStatus } from "@signalstack/policy";
 import { fetchDashboardData } from "../lib/api";
 import { MapViewport } from "../components/map-viewport";
-import { SourceHealthStrip } from "../components/source-health-strip";
+import { RenoAtcPanel } from "../components/reno-atc-panel";
+import { RenoScannerPanel } from "../components/reno-scanner-panel";
 import { TranscriptFeed } from "../components/transcript-feed";
 import { DetailPanel } from "../components/detail-panel";
 
@@ -26,31 +27,29 @@ export default async function HomePage() {
 
   return (
     <main className="shell">
-      <header className="topbar">
+      <section className="workspace-summary">
         <div>
-          <p className="eyebrow">Production-minded operator dashboard</p>
-          <h1>Reno SignalStack</h1>
+          <h1 className="workspace-title">Reno SignalStack</h1>
+          <p className="workspace-subtitle">Map and live camera workspace for the Reno region</p>
         </div>
-        <div className="topbar-meta">
+        <div className="tag-row">
           <Badge tone="accent">{DEFAULT_REGION.name}</Badge>
-          <Badge tone="neutral">Replay Ready</Badge>
-          <Badge tone="neutral">Mock Adapters Active</Badge>
+          <Badge tone="neutral">Leaflet base</Badge>
+          <Badge tone="neutral">Camera-first layout</Badge>
         </div>
-      </header>
+      </section>
 
-      <SourceHealthStrip items={data.layers} />
-
-      <section className="hero-grid">
+      <section className="hero-grid hero-grid-single">
         <Panel className="map-panel">
           <div className="panel-header">
             <SectionTitle
-              title="2D Map Base"
-              subtitle="2D base map with API overlays and live doppler weather"
+              title="Operations map"
+              subtitle="Live map, airport cameras, and overlay controls in one workspace"
             />
             <div className="tag-row">
-              <Badge tone="accent">Working MVP</Badge>
-              <Badge tone="neutral">Leaflet + Google</Badge>
-              <Badge tone="neutral">Live Doppler</Badge>
+              <Badge tone="accent">Live Cameras</Badge>
+              <Badge tone="neutral">Doppler Ready</Badge>
+              <Badge tone="neutral">Overlay Filters</Badge>
             </div>
           </div>
           <MapViewport
@@ -58,14 +57,17 @@ export default async function HomePage() {
             events={data.events}
             stacks={data.stacks}
             cameras={data.cameras}
+            initialFlightSubscriptions={data.flightSubscriptions}
           />
         </Panel>
+      </section>
 
-        <Panel className="stack-panel">
+      <section className="operations-grid">
+        <Panel>
           <div className="panel-header">
             <SectionTitle
-              title="Information Stacks"
-              subtitle="Related signals grouped by place, time, and source"
+              title="Information stacks"
+              subtitle="Grouped signals, incidents, and airport activity"
             />
             <Badge tone="accent">{data.stacks.length} active</Badge>
           </div>
@@ -74,6 +76,19 @@ export default async function HomePage() {
               <StackCard key={stack.id} stack={stack} />
             ))}
           </div>
+        </Panel>
+
+        <Panel>
+          <div className="panel-header">
+            <SectionTitle
+              title="Reno Airport ATC"
+              subtitle="Pacific-time transcript view for Reno tower and approach traffic"
+            />
+            <Badge tone="accent">
+              {data.events.filter((event) => event.sourceType === "atc" && event.transcript).length} updates
+            </Badge>
+          </div>
+          <RenoAtcPanel events={data.events} />
         </Panel>
       </section>
 
@@ -87,6 +102,51 @@ export default async function HomePage() {
             <Badge tone="neutral">{data.replay.frames.length} frames</Badge>
           </div>
           <TimelineBar marks={buildReplayMarks(data.replay)} />
+        </Panel>
+      </section>
+
+      <section className="timeline-grid">
+        <Panel>
+          <div className="panel-header">
+            <SectionTitle
+              title="Future signal modules"
+              subtitle="Scanner, incident correlation, and operator queue workspace planning"
+            />
+            <Badge tone="neutral">Planned next</Badge>
+          </div>
+          <div className="future-module-grid">
+            <article className="future-module-card">
+              <strong>Scanner workspace</strong>
+              <p>Conversation threads, incident grouping, and map-linked unit activity.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Camera correlation</strong>
+              <p>Nearest camera suggestions, runway views, and event-linked live feed focus.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Operator queue</strong>
+              <p>Bookmarks, pinned incidents, and replay handoff notes for the next pass.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Authorized ingest hook</strong>
+              <p>Drop-in place for a licensed or operator-owned Reno ATC audio source.</p>
+            </article>
+          </div>
+        </Panel>
+      </section>
+
+      <section className="timeline-grid">
+        <Panel>
+          <div className="panel-header">
+            <SectionTitle
+              title="Reno Police Radio"
+              subtitle="Scanner transcript, speaker buckets, and code-word interpretation"
+            />
+            <Badge tone="accent">
+              {data.events.filter((event) => event.sourceType === "scanner" && event.transcript).length} updates
+            </Badge>
+          </div>
+          <RenoScannerPanel events={data.events} />
         </Panel>
       </section>
 

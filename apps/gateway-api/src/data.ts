@@ -73,6 +73,7 @@ export const events: SignalEvent[] = [
     summary: "SWA4437 is descending toward KRNO with weather cells to the west.",
     transcript: null,
     entities: [
+      { kind: "registration", value: "N443SW", confidence: 0.96 },
       { kind: "callsign", value: "SWA4437", confidence: 0.99 },
       { kind: "airport", value: "KRNO", confidence: 0.98 },
       { kind: "trend", value: "descending", confidence: 0.94 }
@@ -82,6 +83,7 @@ export const events: SignalEvent[] = [
       speedKt: 212,
       origin: "KLAS",
       destination: "KRNO",
+      registration: "N443SW",
       callsign: "SWA4437"
     }
   },
@@ -253,10 +255,40 @@ export const stacks: InformationStack[] = [
 
 export const cameras: CameraSource[] = [
   {
-    id: "cam-ndot-vista",
-    name: "Nevada 511 I-80 / Vista",
+    id: "cam-ndot-plumb-airport",
+    name: "Nevada 511 I-580 @ Plumb Airport",
     provider: "Nevada 511",
-    point: { lon: -119.7293, lat: 39.5298 },
+    point: { lon: -119.7814, lat: 39.5031 },
+    embedMode: "link_only",
+    targetUrl: "https://www.nvroads.com/region/Reno",
+    previewUrl: null,
+    status: "active"
+  },
+  {
+    id: "cam-ndot-mill-st",
+    name: "Nevada 511 I-580 @ Mill St",
+    provider: "Nevada 511",
+    point: { lon: -119.7828, lat: 39.5197 },
+    embedMode: "link_only",
+    targetUrl: "https://www.nvroads.com/region/Reno",
+    previewUrl: null,
+    status: "active"
+  },
+  {
+    id: "cam-ndot-villanova",
+    name: "Nevada 511 I-580 @ Villanova On Ramp",
+    provider: "Nevada 511",
+    point: { lon: -119.78, lat: 39.5099 },
+    embedMode: "link_only",
+    targetUrl: "https://www.nvroads.com/region/Reno",
+    previewUrl: null,
+    status: "active"
+  },
+  {
+    id: "cam-ndot-vista",
+    name: "Nevada 511 I-80 @ Vista Blvd",
+    provider: "Nevada 511",
+    point: { lon: -119.7002, lat: 39.5264 },
     embedMode: "link_only",
     targetUrl: "https://www.nvroads.com/region/Reno",
     previewUrl: null,
@@ -264,39 +296,39 @@ export const cameras: CameraSource[] = [
   },
   {
     id: "cam-ndot-keystone",
-    name: "Nevada 511 I-80 / Keystone",
+    name: "Nevada 511 I-80 @ Keystone Ave",
     provider: "Nevada 511",
-    point: { lon: -119.8298, lat: 39.5294 },
+    point: { lon: -119.8296, lat: 39.5302 },
     embedMode: "link_only",
     targetUrl: "https://www.nvroads.com/region/Reno",
     previewUrl: null,
     status: "active"
   },
   {
-    id: "cam-ndot-west-mccarran",
-    name: "Nevada 511 I-80 / W McCarran",
+    id: "cam-ndot-wells",
+    name: "Nevada 511 I-80 @ Wells Ave",
     provider: "Nevada 511",
-    point: { lon: -119.8464, lat: 39.5314 },
+    point: { lon: -119.8012, lat: 39.5362 },
     embedMode: "link_only",
     targetUrl: "https://www.nvroads.com/region/Reno",
     previewUrl: null,
     status: "active"
   },
   {
-    id: "cam-ndot-395-virginia",
-    name: "Nevada 511 US-395 / S Virginia",
+    id: "cam-ndot-rock",
+    name: "Nevada 511 I-80 @ Rock Blvd",
+    provider: "Nevada 511",
+    point: { lon: -119.7653, lat: 39.5335 },
+    embedMode: "link_only",
+    targetUrl: "https://www.nvroads.com/region/Reno",
+    previewUrl: null,
+    status: "active"
+  },
+  {
+    id: "cam-ndot-virginia",
+    name: "Nevada 511 US-395 @ S Virginia",
     provider: "Nevada 511",
     point: { lon: -119.7896, lat: 39.4726 },
-    embedMode: "link_only",
-    targetUrl: "https://www.nvroads.com/region/Reno",
-    previewUrl: null,
-    status: "active"
-  },
-  {
-    id: "cam-ndot-395-mccarran",
-    name: "Nevada 511 US-395 / N McCarran",
-    provider: "Nevada 511",
-    point: { lon: -119.8017, lat: 39.5598 },
     embedMode: "link_only",
     targetUrl: "https://www.nvroads.com/region/Reno",
     previewUrl: null,
