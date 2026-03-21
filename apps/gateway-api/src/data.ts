@@ -256,12 +256,32 @@ export const stacks: InformationStack[] = [
 export const cameras: CameraSource[] = [
   {
     id: "cam-virginia-city-skyline",
-    name: "Virginia City C Street Camera",
+    name: "Virginia City Skyline Camera",
     provider: "SkylineWebcams",
-    point: { lon: -119.6496, lat: 39.3097 },
+    point: { lon: -119.6497, lat: 39.3096 },
     embedMode: "embed",
     targetUrl: "https://www.skylinewebcams.com/en/webcam/united-states/nevada/virginia-city/virginia-city.html",
     previewUrl: "https://embed.skylinewebcams.com/img/1130.jpg",
+    status: "active"
+  },
+  {
+    id: "cam-virginia-city-main-street-1",
+    name: "Virginia City Live Cam 1",
+    provider: "Visit Virginia City (Verkada)",
+    point: { lon: -119.6496, lat: 39.3097 },
+    embedMode: "embed",
+    targetUrl: "https://visitvirginiacitynv.com/live-webcam/",
+    previewUrl: "https://vauth.command.verkada.com/embed/html/e54307e0-a825-4b5a-8801-168323edf0b2/",
+    status: "active"
+  },
+  {
+    id: "cam-virginia-city-main-street-2",
+    name: "Virginia City Live Cam 2",
+    provider: "Visit Virginia City (Verkada)",
+    point: { lon: -119.6499, lat: 39.3095 },
+    embedMode: "embed",
+    targetUrl: "https://visitvirginiacitynv.com/live-webcam/",
+    previewUrl: "https://vauth.command.verkada.com/embed/html/6d09871e-a03e-420d-80a5-4b027c32a7cf/",
     status: "active"
   },
   {
