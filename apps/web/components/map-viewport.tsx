@@ -10,9 +10,16 @@ import type {
   SourceKind
 } from "@signalstack/contracts";
 import { Badge } from "@signalstack/ui";
-import type { Layer, LayerGroup, Map as LeafletMap } from "leaflet";
+import type {
+  Layer,
+  LayerGroup,
+  Map as LeafletMap,
+  Marker as LeafletMarker,
+  Polyline as LeafletPolyline
+} from "leaflet";
 import { CameraMediaViewer } from "./camera-media-viewer";
 import type { FlightSubscriptionRecord } from "../lib/api";
+import { AircraftStore, type AircraftRenderable, type AircraftTrailPoint } from "../lib/aircraft-store";
 
 type MapViewportProps = {
   region: RegionConfig;
@@ -28,31 +35,18 @@ type AircraftRefreshState = {
   fetchedAt: string | null;
 };
 
-type AircraftTrackPoint = {
-  lat: number;
-  lon: number;
-  altM: number | null;
-  ts: string;
-};
-
-type AircraftTrackHistory = Record<string, AircraftTrackPoint[]>;
-
-type AnimatedAircraftPosition = {
-  lat: number;
-  lon: number;
-  headingDeg: number;
-};
-
-type AnimatedAircraftPositions = Record<string, AnimatedAircraftPosition>;
-
 type SelectedOverlay =
   | { type: "event"; id: string }
   | { type: "stack"; id: string }
   | { type: "camera"; id: string }
   | null;
 
+type LeafletAircraftLayerRecord = {
+  marker: LeafletMarker;
+  trail: LeafletPolyline | null;
+};
+
 type MapMode = "google" | "leaflet";
-type MapDirection = "north" | "south" | "east" | "west";
 type MapZoom = "in" | "out";
 
 const NOAA_DOPPLER_WMS_URL = "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows";
@@ -92,8 +86,6 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 
 const FILTERABLE_SOURCE_KINDS: SourceKind[] = ["aircraft", "atc", "scanner", "camera"];
 const AIRCRAFT_REFRESH_INTERVAL_MS = 15_000;
-const AIRCRAFT_ANIMATION_DURATION_MS = 12_000;
-const MAX_TRACK_POINTS = 10;
 const DEFAULT_CAMERA_ID = "nv511-4986";
 
 declare global {
@@ -139,82 +131,31 @@ function loadGoogleMaps(apiKey: string): Promise<typeof google.maps> {
   return window.__renoSignalStackGoogleMapsPromise;
 }
 
-function createAircraftTrail(event: SignalEvent): Array<{ lat: number; lng: number }> {
-  const headingDeg = typeof event.rawPayload?.headingDeg === "number" ? event.rawPayload.headingDeg : 0;
-  const radians = ((headingDeg - 180) * Math.PI) / 180;
-  const distance = 0.08;
-
-  return [
-    {
-      lat: event.point.lat - Math.sin(radians) * distance,
-      lng: event.point.lon - Math.cos(radians) * distance
-    },
-    { lat: event.point.lat, lng: event.point.lon }
-  ];
-}
-
-function buildAircraftTrackHistory(events: SignalEvent[]): AircraftTrackHistory {
-  return events.reduce<AircraftTrackHistory>((acc, event) => {
-    if (event.sourceType !== "aircraft") {
-      return acc;
-    }
-
-    acc[event.id] = [
-      {
-        lat: event.point.lat,
-        lon: event.point.lon,
-        altM: event.point.altM ?? null,
-        ts: event.occurredAt
-      }
-    ];
-    return acc;
-  }, {});
-}
-
-function mergeAircraftTrackHistory(
-  current: AircraftTrackHistory,
-  aircraftEvents: SignalEvent[]
-): AircraftTrackHistory {
-  const next: AircraftTrackHistory = {};
-
-  aircraftEvents.forEach((event) => {
-    const previousPoints = current[event.id] ?? [];
-    const nextPoint: AircraftTrackPoint = {
-      lat: event.point.lat,
-      lon: event.point.lon,
-      altM: event.point.altM ?? null,
-      ts: event.occurredAt
-    };
-    const alreadyTracked = previousPoints.some(
-      (point) =>
-        point.ts === nextPoint.ts &&
-        point.lat === nextPoint.lat &&
-        point.lon === nextPoint.lon
-    );
-    const mergedPoints = alreadyTracked ? previousPoints : [...previousPoints, nextPoint];
-    next[event.id] = mergedPoints.slice(-MAX_TRACK_POINTS);
-  });
-
-  return next;
-}
-
-function buildAircraftAnimatedPositions(events: SignalEvent[]): AnimatedAircraftPositions {
-  return events.reduce<AnimatedAircraftPositions>((acc, event) => {
-    if (event.sourceType !== "aircraft") {
-      return acc;
-    }
-
-    acc[event.id] = {
-      lat: event.point.lat,
-      lon: event.point.lon,
-      headingDeg: getAircraftHeading(event)
-    };
-    return acc;
-  }, {});
-}
-
 function getAircraftHeading(event: SignalEvent): number {
   return typeof event.rawPayload?.headingDeg === "number" ? event.rawPayload.headingDeg : 0;
+}
+
+function getAircraftStableId(event: SignalEvent | null): string | null {
+  if (!event || event.sourceType !== "aircraft") {
+    return null;
+  }
+
+  const rawIcao24 = event.rawPayload?.icao24;
+  if (typeof rawIcao24 === "string" && rawIcao24.trim()) {
+    return rawIcao24.trim().toLowerCase();
+  }
+
+  const entityIcao24 = event.entities?.find((entity) => entity.kind === "icao24")?.value;
+  if (entityIcao24?.trim()) {
+    return entityIcao24.trim().toLowerCase();
+  }
+
+  const rawCallsign = event.rawPayload?.callsign;
+  if (typeof rawCallsign === "string" && rawCallsign.trim()) {
+    return rawCallsign.trim().toLowerCase();
+  }
+
+  return event.id;
 }
 
 function escapeHtml(value: string): string {
@@ -317,7 +258,12 @@ function createLeafletAircraftIcon(
   isSubscribedFlight: boolean
 ) {
   const headingDeg = getAircraftHeading(event);
-  const bodyColor = isSubscribedFlight ? "#7de2d1" : SOURCE_COLORS.aircraft;
+  const isMilitaryAircraft = event.rawPayload?.isMilitary === true;
+  const bodyColor = isSubscribedFlight
+    ? "#7de2d1"
+    : isMilitaryAircraft
+      ? "#ff8a5b"
+      : SOURCE_COLORS.aircraft;
   const outlineColor = isSubscribedFlight ? "#ffcf6e" : "#07111f";
   const safeIdentifier = escapeHtml(displayIdentifier);
   const safeSummary = escapeHtml(event.summary);
@@ -352,13 +298,13 @@ export function MapViewport({
   const cameraViewerCardRef = useRef<HTMLDivElement | null>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
+  const leafletAircraftGroupRef = useRef<LayerGroup | null>(null);
+  const leafletAircraftLayersRef = useRef<Map<string, LeafletAircraftLayerRecord>>(new Map());
   const leafletEventGroupRef = useRef<LayerGroup | null>(null);
   const leafletStackGroupRef = useRef<LayerGroup | null>(null);
   const leafletCameraGroupRef = useRef<LayerGroup | null>(null);
   const leafletWeatherGroupRef = useRef<LayerGroup | null>(null);
-  const currentAnimatedAircraftPositionsRef = useRef<AnimatedAircraftPositions>({});
-  const aircraftAnimationStartRef = useRef<AnimatedAircraftPositions>({});
-  const aircraftAnimationTargetRef = useRef<AnimatedAircraftPositions>({});
+  const aircraftStoreRef = useRef(new AircraftStore());
   const persistedLeafletViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
   const persistedGoogleViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
   const initialCamera = cameras.find((camera) => camera.id === DEFAULT_CAMERA_ID) ?? cameras[0] ?? null;
@@ -366,12 +312,11 @@ export function MapViewport({
     return initialCamera ? { type: "camera", id: initialCamera.id } : null;
   });
   const [liveEvents, setLiveEvents] = useState<SignalEvent[]>(events);
-  const [aircraftTracks, setAircraftTracks] = useState<AircraftTrackHistory>(() =>
-    buildAircraftTrackHistory(events)
-  );
-  const [animatedAircraftPositions, setAnimatedAircraftPositions] = useState<AnimatedAircraftPositions>(() =>
-    buildAircraftAnimatedPositions(events)
-  );
+  const [aircraftRenderables, setAircraftRenderables] = useState<AircraftRenderable[]>(() => {
+    const store = aircraftStoreRef.current;
+    store.seed(events, Date.now());
+    return store.getRenderables();
+  });
   const [mapState, setMapState] = useState<"loading" | "ready" | "error">("loading");
   const [mapMode, setMapMode] = useState<MapMode>("leaflet");
   const [activeViewerCameraId, setActiveViewerCameraId] = useState<string | null>(() => initialCamera?.id ?? null);
@@ -413,13 +358,35 @@ export function MapViewport({
     return visibleKinds[source];
   }
 
-  const filteredEvents = useMemo(
-    () => liveEvents.filter((event) => isSourceVisible(event.sourceType) && event.sourceType !== "camera"),
+  const nonAircraftVisibleEvents = useMemo(
+    () =>
+      liveEvents.filter(
+        (event) =>
+          event.sourceType !== "aircraft" &&
+          event.sourceType !== "camera" &&
+          isSourceVisible(event.sourceType)
+      ),
     [liveEvents, showWeatherOverlay, visibleKinds]
+  );
+  const visibleAircraftEvents = useMemo(
+    () => (visibleKinds.aircraft ? aircraftRenderables.map((renderable) => renderable.event) : []),
+    [aircraftRenderables, visibleKinds.aircraft]
+  );
+  const filteredEvents = useMemo(
+    () => [...visibleAircraftEvents, ...nonAircraftVisibleEvents],
+    [nonAircraftVisibleEvents, visibleAircraftEvents]
   );
   const mapRenderableEvents = useMemo(
     () => filteredEvents.filter((event) => event.sourceType !== "weather"),
     [filteredEvents]
+  );
+  const mapRenderableAircraft = useMemo(
+    () => (visibleKinds.aircraft ? aircraftRenderables : []),
+    [aircraftRenderables, visibleKinds.aircraft]
+  );
+  const mapRenderableSignalEvents = useMemo(
+    () => mapRenderableEvents.filter((event) => event.sourceType !== "aircraft"),
+    [mapRenderableEvents]
   );
   const krnoPoint = useMemo(() => {
     const krnoViewpoint = region.savedViewpoints.find((viewpoint) => viewpoint.id === "krno");
@@ -458,7 +425,9 @@ export function MapViewport({
 
   const selectedEvent =
     selectedOverlay?.type === "event"
-      ? filteredEvents.find((event) => event.id === selectedOverlay.id) ?? null
+      ? filteredEvents.find((event) => event.id === selectedOverlay.id) ??
+        aircraftRenderables.find((renderable) => renderable.key === selectedOverlay.id)?.event ??
+        null
       : null;
   const selectedStack =
     selectedOverlay?.type === "stack"
@@ -476,6 +445,7 @@ export function MapViewport({
   const selectedAircraftDisplayId = getAircraftDisplayIdentifier(selectedEvent);
   const selectedFlightIdentifier = getFlightSubscriptionIdentifier(selectedEvent);
   const selectedAircraftHasTailNumber = hasAircraftTailNumber(selectedEvent);
+  const selectedAircraftIsMilitary = selectedEvent?.rawPayload?.isMilitary === true;
   const subscribedFlightNumbers = useMemo(
     () => new Set(flightSubscriptions.map((item) => item.flightNumber.toUpperCase())),
     [flightSubscriptions]
@@ -508,21 +478,44 @@ export function MapViewport({
     return counts;
   }, [filteredEvents, filteredCameras, showWeatherOverlay]);
   const liveAircraftCount = filteredEvents.filter((event) => event.sourceType === "aircraft").length;
-  const selectedAircraftTrack =
-    selectedEvent?.sourceType === "aircraft" ? aircraftTracks[selectedEvent.id] ?? [] : [];
+  const selectedAircraftTrack: AircraftTrailPoint[] = useMemo(() => {
+    if (selectedEvent?.sourceType !== "aircraft") {
+      return [];
+    }
 
-  useEffect(() => {
-    currentAnimatedAircraftPositionsRef.current = animatedAircraftPositions;
-  }, [animatedAircraftPositions]);
+    const selectedAircraftId = getAircraftStableId(selectedEvent);
+
+    return (
+      aircraftRenderables.find(
+        (renderable) =>
+          renderable.key === selectedOverlay?.id ||
+          (selectedAircraftId !== null && renderable.key === selectedAircraftId) ||
+          renderable.event.id === selectedEvent.id
+      )?.trail ?? []
+    );
+  }, [aircraftRenderables, selectedEvent, selectedOverlay]);
+
+  function mergeIntoExistingAircraftStore(newAircraftEvents: SignalEvent[], fetchedAt?: string | null) {
+    const nowMs = Date.now();
+    aircraftStoreRef.current.updateFromEvents(newAircraftEvents, nowMs);
+    setAircraftRenderables(aircraftStoreRef.current.getRenderables());
+    setLiveEvents((current) => {
+      const nonAircraftEvents = current.filter((event) => event.sourceType !== "aircraft");
+      const mergedAircraftEvents = aircraftStoreRef.current.getRenderables().map((renderable) => renderable.event);
+      return [...mergedAircraftEvents, ...nonAircraftEvents];
+    });
+    if (fetchedAt) {
+      setAircraftRefreshState((current) => ({
+        ...current,
+        fetchedAt
+      }));
+    }
+  }
 
   useEffect(() => {
     setLiveEvents(events);
-    setAircraftTracks(buildAircraftTrackHistory(events));
-    const nextPositions = buildAircraftAnimatedPositions(events);
-    currentAnimatedAircraftPositionsRef.current = nextPositions;
-    aircraftAnimationStartRef.current = nextPositions;
-    aircraftAnimationTargetRef.current = nextPositions;
-    setAnimatedAircraftPositions(nextPositions);
+    aircraftStoreRef.current.seed(events, Date.now());
+    setAircraftRenderables(aircraftStoreRef.current.getRenderables());
     setAircraftRefreshState((current) => ({
       ...current,
       fetchedAt: events.find((event) => event.sourceType === "aircraft")?.ingestedAt ?? current.fetchedAt
@@ -530,65 +523,19 @@ export function MapViewport({
   }, [events]);
 
   useEffect(() => {
-    setAircraftTracks((current) =>
-      mergeAircraftTrackHistory(
-        current,
-        liveEvents.filter((event) => event.sourceType === "aircraft")
-      )
+    aircraftStoreRef.current.updateFromEvents(
+      liveEvents.filter((event) => event.sourceType === "aircraft"),
+      Date.now()
     );
+    setAircraftRenderables(aircraftStoreRef.current.getRenderables());
   }, [liveEvents]);
 
   useEffect(() => {
-    const aircraftEvents = liveEvents.filter((event) => event.sourceType === "aircraft");
-    if (aircraftEvents.length === 0) {
-      aircraftAnimationStartRef.current = {};
-      aircraftAnimationTargetRef.current = {};
-      setAnimatedAircraftPositions({});
-      return;
-    }
-
-    const targets = aircraftEvents.reduce<AnimatedAircraftPositions>((acc, event) => {
-      acc[event.id] = {
-        lat: event.point.lat,
-        lon: event.point.lon,
-        headingDeg: getAircraftHeading(event)
-      };
-      return acc;
-    }, {});
-
     let frameId = 0;
-    const startedAt = performance.now();
-    const animationStart: AnimatedAircraftPositions = {};
-
-    aircraftEvents.forEach((event) => {
-      animationStart[event.id] =
-        currentAnimatedAircraftPositionsRef.current[event.id] ??
-        aircraftAnimationTargetRef.current[event.id] ??
-        targets[event.id];
-    });
-
-    aircraftAnimationStartRef.current = animationStart;
-    aircraftAnimationTargetRef.current = targets;
 
     const animate = (now: number) => {
-      const progress = Math.min(1, (now - startedAt) / AIRCRAFT_ANIMATION_DURATION_MS);
-      const next: AnimatedAircraftPositions = {};
-
-      aircraftEvents.forEach((event) => {
-        const start = aircraftAnimationStartRef.current[event.id] ?? targets[event.id];
-        const target = aircraftAnimationTargetRef.current[event.id] ?? targets[event.id];
-        next[event.id] = {
-          lat: start.lat + (target.lat - start.lat) * progress,
-          lon: start.lon + (target.lon - start.lon) * progress,
-          headingDeg: start.headingDeg + (target.headingDeg - start.headingDeg) * progress
-        };
-      });
-
-      setAnimatedAircraftPositions(next);
-
-      if (progress < 1) {
-        frameId = window.requestAnimationFrame(animate);
-      }
+      setAircraftRenderables(aircraftStoreRef.current.tick(now));
+      frameId = window.requestAnimationFrame(animate);
     };
 
     frameId = window.requestAnimationFrame(animate);
@@ -598,7 +545,7 @@ export function MapViewport({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [liveEvents]);
+  }, []);
 
   useEffect(() => {
     if (selectedOverlay?.type === "event") {
@@ -702,6 +649,7 @@ export function MapViewport({
         });
 
         leafletMapRef.current = map;
+        leafletAircraftGroupRef.current = L.layerGroup().addTo(map);
         leafletEventGroupRef.current = L.layerGroup().addTo(map);
         leafletStackGroupRef.current = L.layerGroup().addTo(map);
         leafletCameraGroupRef.current = L.layerGroup().addTo(map);
@@ -749,10 +697,13 @@ export function MapViewport({
 
     return () => {
       cancelled = true;
+      leafletAircraftGroupRef.current?.clearLayers();
+      leafletAircraftLayersRef.current.clear();
       leafletEventGroupRef.current?.clearLayers();
       leafletStackGroupRef.current?.clearLayers();
       leafletCameraGroupRef.current?.clearLayers();
       leafletWeatherGroupRef.current?.clearLayers();
+      leafletAircraftGroupRef.current = null;
       leafletEventGroupRef.current = null;
       leafletStackGroupRef.current = null;
       leafletCameraGroupRef.current = null;
@@ -847,39 +798,21 @@ export function MapViewport({
       const overlayGroup = leafletEventGroupRef.current;
       overlayGroup.clearLayers();
 
-      mapRenderableEvents.forEach((event) => {
+      mapRenderableSignalEvents.forEach((event) => {
         const eventFlightIdentifier = getFlightSubscriptionIdentifier(event);
         const aircraftDisplayId = getAircraftDisplayIdentifier(event);
         const isSubscribedFlight =
           eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
-        const animatedPosition = event.sourceType === "aircraft" ? animatedAircraftPositions[event.id] : null;
-        const markerLat = animatedPosition?.lat ?? event.point.lat;
-        const markerLon = animatedPosition?.lon ?? event.point.lon;
-        const markerEvent =
-          animatedPosition && event.sourceType === "aircraft"
-            ? {
-                ...event,
-                point: {
-                  ...event.point,
-                  lat: markerLat,
-                  lon: markerLon
-                },
-                rawPayload: {
-                  ...event.rawPayload,
-                  headingDeg: animatedPosition.headingDeg
-                }
-              }
-            : event;
         const marker =
           event.sourceType === "aircraft" && aircraftDisplayId
-            ? L.marker([markerLat, markerLon], {
-                icon: L.divIcon(createLeafletAircraftIcon(markerEvent, aircraftDisplayId, isSubscribedFlight))
+            ? L.marker([event.point.lat, event.point.lon], {
+                icon: L.divIcon(createLeafletAircraftIcon(event, aircraftDisplayId, isSubscribedFlight))
               }).bindTooltip(
                 isSubscribedFlight
                   ? `${aircraftDisplayId} | ${event.summary} | webhook active`
                   : `${aircraftDisplayId} | ${event.summary}`
               )
-            : L.circleMarker([markerLat, markerLon], {
+            : L.circleMarker([event.point.lat, event.point.lon], {
                 radius: 6,
                 fillColor: SOURCE_COLORS[event.sourceType],
                 color: "#07111f",
@@ -893,19 +826,6 @@ export function MapViewport({
         });
         overlayGroup.addLayer(marker);
 
-        if (event.sourceType === "aircraft" && selectedEvent?.sourceType === "aircraft" && selectedEvent.id === event.id) {
-          const trajectoryPath = (aircraftTracks[event.id] ?? []).map(
-            (point) => [point.lat, point.lon] as [number, number]
-          );
-          if (trajectoryPath.length > 1) {
-            const trail = L.polyline(trajectoryPath, {
-              color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
-              weight: isSubscribedFlight ? 4 : 3,
-              opacity: 0.9
-            });
-            overlayGroup.addLayer(trail);
-          }
-        }
       });
     }
 
@@ -914,7 +834,124 @@ export function MapViewport({
     return () => {
       cancelled = true;
     };
-  }, [aircraftTracks, animatedAircraftPositions, mapRenderableEvents, mapState, selectedEvent, subscribedFlightNumbers]);
+  }, [mapRenderableSignalEvents, mapState, subscribedFlightNumbers]);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const aircraftGroup = leafletAircraftGroupRef.current;
+    if (!map || !aircraftGroup) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncAircraftLayers() {
+      const leafletModule = await import("leaflet");
+      const L = leafletModule.default;
+
+      if (cancelled || !leafletAircraftGroupRef.current) {
+        return;
+      }
+
+      const overlayGroup = leafletAircraftGroupRef.current;
+      const aircraftLayers = leafletAircraftLayersRef.current;
+      const nextKeys = new Set<string>();
+
+      mapRenderableAircraft.forEach((renderable) => {
+        const event = renderable.event;
+        const aircraftDisplayId = getAircraftDisplayIdentifier(event);
+        const eventFlightIdentifier = getFlightSubscriptionIdentifier(event);
+        const isSubscribedFlight =
+          eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
+
+        if (!aircraftDisplayId) {
+          return;
+        }
+
+        nextKeys.add(renderable.key);
+
+        const tooltipContent = `${aircraftDisplayId} | ${renderable.stale ? "stale track" : event.summary}`;
+        const icon = L.divIcon(createLeafletAircraftIcon(event, aircraftDisplayId, isSubscribedFlight));
+        let layerRecord = aircraftLayers.get(renderable.key);
+
+        if (!layerRecord) {
+          const marker = L.marker([renderable.lat, renderable.lon], {
+            opacity: renderable.opacity,
+            icon
+          }).bindTooltip(tooltipContent);
+
+          marker.on("click", () => {
+            setSelectedOverlay({ type: "event", id: renderable.key });
+          });
+
+          overlayGroup.addLayer(marker);
+          layerRecord = {
+            marker,
+            trail: null
+          };
+          aircraftLayers.set(renderable.key, layerRecord);
+        } else {
+          layerRecord.marker.setLatLng([renderable.lat, renderable.lon]);
+          layerRecord.marker.setOpacity(renderable.opacity);
+          layerRecord.marker.setIcon(icon);
+          if (layerRecord.marker.getTooltip()) {
+            layerRecord.marker.setTooltipContent(tooltipContent);
+          } else {
+            layerRecord.marker.bindTooltip(tooltipContent);
+          }
+        }
+
+        if (
+          selectedEvent?.sourceType === "aircraft" &&
+          (selectedOverlay?.id === renderable.key || selectedEvent.id === event.id)
+        ) {
+          const trajectoryPath = renderable.trail.map((point) => [point.lat, point.lon] as [number, number]);
+          if (trajectoryPath.length > 1) {
+            if (!layerRecord.trail) {
+              layerRecord.trail = L.polyline(trajectoryPath, {
+                color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
+                weight: isSubscribedFlight ? 4 : 3,
+                opacity: renderable.opacity * 0.9,
+                smoothFactor: 1.2
+              });
+              overlayGroup.addLayer(layerRecord.trail);
+            } else {
+              layerRecord.trail.setLatLngs(trajectoryPath);
+              layerRecord.trail.setStyle({
+                color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
+                weight: isSubscribedFlight ? 4 : 3,
+                opacity: renderable.opacity * 0.9
+              });
+            }
+          } else if (layerRecord.trail) {
+            overlayGroup.removeLayer(layerRecord.trail);
+            layerRecord.trail = null;
+          }
+        } else if (layerRecord.trail) {
+          overlayGroup.removeLayer(layerRecord.trail);
+          layerRecord.trail = null;
+        }
+      });
+
+      aircraftLayers.forEach((layerRecord, key) => {
+        if (nextKeys.has(key)) {
+          return;
+        }
+
+        if (layerRecord.trail) {
+          overlayGroup.removeLayer(layerRecord.trail);
+        }
+        overlayGroup.removeLayer(layerRecord.marker);
+        aircraftLayers.delete(key);
+      });
+    }
+
+    void syncAircraftLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapRenderableAircraft, mapState, selectedEvent, selectedOverlay, subscribedFlightNumbers]);
 
   useEffect(() => {
     const map = leafletMapRef.current;
@@ -1182,24 +1219,35 @@ export function MapViewport({
     }
 
     try {
-      const response = await fetch(`${clientGatewayApiUrl}/api/v1/aircraft/live?refresh=true`, {
+      const refreshQuery = options?.silent ? "" : "?refresh=true";
+      const response = await fetch(`${clientGatewayApiUrl}/api/v1/aircraft/live${refreshQuery}`, {
         cache: "no-store"
       });
+      const payload = (await response.json()) as
+        | {
+            ok: true;
+            fetchedAt: string;
+            count: number;
+            items: SignalEvent[];
+          }
+        | {
+            ok: false;
+            error: string;
+          };
 
-      if (!response.ok) {
-        throw new Error(`Aircraft refresh failed with ${response.status}`);
+      if (!response.ok || !payload.ok) {
+        setAircraftRefreshState((current) => ({
+          ...current,
+          status: "error",
+          message:
+            "error" in payload
+              ? payload.error
+              : "Live aircraft data is temporarily unavailable."
+        }));
+        return;
       }
 
-      const payload = (await response.json()) as {
-        fetchedAt: string;
-        count: number;
-        items: SignalEvent[];
-      };
-
-      setLiveEvents((current) => {
-        const nonAircraftEvents = current.filter((event) => event.sourceType !== "aircraft");
-        return [...payload.items, ...nonAircraftEvents];
-      });
+      mergeIntoExistingAircraftStore(payload.items, payload.fetchedAt);
 
       setAircraftRefreshState((current) => ({
         status: "success",
@@ -1211,7 +1259,12 @@ export function MapViewport({
 
       if (!options?.silent && payload.items[0]) {
         setSelectedOverlay((current) => {
-          if (current?.type === "event" && payload.items.some((item) => item.id === current.id)) {
+          if (
+            current?.type === "event" &&
+            payload.items.some(
+              (item) => item.id === current.id || getAircraftStableId(item) === current.id
+            )
+          ) {
             return current;
           }
 
@@ -1219,7 +1272,7 @@ export function MapViewport({
             return current;
           }
 
-          return { type: "event", id: payload.items[0].id };
+          return { type: "event", id: getAircraftStableId(payload.items[0]) ?? payload.items[0].id };
         });
       }
     } catch (error) {
@@ -1232,6 +1285,12 @@ export function MapViewport({
   }
 
   useEffect(() => {
+    if (!visibleKinds.aircraft) {
+      return;
+    }
+
+    void refreshAircraft({ silent: true });
+
     const interval = window.setInterval(() => {
       void refreshAircraft({ silent: true });
     }, AIRCRAFT_REFRESH_INTERVAL_MS);
@@ -1239,7 +1298,7 @@ export function MapViewport({
     return () => {
       window.clearInterval(interval);
     };
-  }, [clientGatewayApiUrl]);
+  }, [clientGatewayApiUrl, visibleKinds.aircraft]);
 
   function viewCameraOnDashboard(camera: CameraSource, options?: { openPopup?: boolean }) {
     setActiveViewerCameraId(camera.id);
@@ -1510,10 +1569,15 @@ export function MapViewport({
                       </button>
                     </div>
                     <small>
-                      {selectedAircraftHasTailNumber ? "Tail number" : "Aircraft ID"}:{" "}
+                      {selectedAircraftIsMilitary
+                        ? "Military aircraft"
+                        : selectedAircraftHasTailNumber
+                          ? "Tail number"
+                          : "Aircraft ID"}
+                      :{" "}
                       {selectedAircraftDisplayId ?? selectedFlightIdentifier}
                       {" | "}
-                      Flight number: {selectedFlightIdentifier}
+                      Flight number: {selectedFlightIdentifier ?? "n/a"}
                       {isSelectedFlightSubscribed ? " | highlighted on map" : ""}
                     </small>
                     {selectedAircraftTrack.length > 0 ? (

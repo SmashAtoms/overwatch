@@ -7,7 +7,7 @@ import type {
 } from "@signalstack/contracts";
 
 const API_BASE =
-  process.env.GATEWAY_API_URL ?? process.env.NEXT_PUBLIC_GATEWAY_API_URL ?? "http://localhost:4000";
+  process.env.GATEWAY_API_URL ?? process.env.NEXT_PUBLIC_GATEWAY_API_URL ?? "http://127.0.0.1:4000";
 
 export type FlightSubscriptionRecord = {
   id: string;
@@ -48,12 +48,18 @@ export async function fetchDashboardData(): Promise<{
   replay: ReplayFrameSet;
   flightSubscriptions: FlightSubscriptionRecord[];
 }> {
+  const replayFallback: ReplayFrameSet = {
+    range: "15m",
+    generatedAt: new Date().toISOString(),
+    frames: []
+  };
+
   const [layers, events, stacks, cameras, replay, subscriptions] = await Promise.all([
-    fetchJson<AdapterHealth[]>("/api/v1/layers/status"),
-    fetchJson<SignalEvent[]>("/api/v1/events"),
-    fetchJson<InformationStack[]>("/api/v1/stacks"),
-    fetchJson<CameraSource[]>("/api/v1/cameras"),
-    fetchJson<ReplayFrameSet>("/api/v1/replay"),
+    fetchJsonOrDefault<AdapterHealth[]>("/api/v1/layers/status", []),
+    fetchJsonOrDefault<SignalEvent[]>("/api/v1/events", []),
+    fetchJsonOrDefault<InformationStack[]>("/api/v1/stacks", []),
+    fetchJsonOrDefault<CameraSource[]>("/api/v1/cameras", []),
+    fetchJsonOrDefault<ReplayFrameSet>("/api/v1/replay", replayFallback),
     fetchJsonOrDefault<{ items: FlightSubscriptionRecord[] }>(
       "/api/v1/integrations/aerodatabox/subscriptions",
       { items: [] }

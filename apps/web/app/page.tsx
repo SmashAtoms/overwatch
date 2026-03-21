@@ -4,10 +4,9 @@ import {
   Panel,
   SectionTitle,
   StackCard,
-  StatusRow,
-  TimelineBar
+  StatusRow
 } from "@signalstack/ui";
-import { buildReplayMarks, formatLagLabel, summarizeLayerStatus } from "@signalstack/policy";
+import { formatLagLabel, summarizeLayerStatus } from "@signalstack/policy";
 import { fetchDashboardData } from "../lib/api";
 import { MapViewport } from "../components/map-viewport";
 import { RenoAtcPanel } from "../components/reno-atc-panel";
@@ -22,7 +21,18 @@ function selectPrimaryEvent(events: SignalEvent[]): SignalEvent | undefined {
 }
 
 export default async function HomePage() {
-  const data = await fetchDashboardData();
+  const data = await fetchDashboardData().catch(() => ({
+    layers: [],
+    events: [],
+    stacks: [],
+    cameras: [],
+    replay: {
+      range: "15m" as const,
+      generatedAt: new Date().toISOString(),
+      frames: []
+    },
+    flightSubscriptions: []
+  }));
   const selectedEvent = selectPrimaryEvent(data.events);
 
   return (
@@ -90,19 +100,6 @@ export default async function HomePage() {
             </Badge>
           </div>
           <RenoAtcPanel events={data.events} />
-        </Panel>
-      </section>
-
-      <section className="timeline-grid">
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Replay Timeline"
-              subtitle="15 min, 1 hr, 6 hr, and 24 hr windows with synchronized layers"
-            />
-            <Badge tone="neutral">{data.replay.frames.length} frames</Badge>
-          </div>
-          <TimelineBar marks={buildReplayMarks(data.replay)} />
         </Panel>
       </section>
 

@@ -68,14 +68,14 @@ app.get(
       minConfidence?: number;
       refreshAircraft?: boolean;
     };
-    let aircraftEvents = events.filter((event) => event.sourceType === "aircraft");
+    let aircraftEvents: typeof events = [];
     try {
       const aircraftSnapshot = await getLiveAircraftSnapshot({
         forceRefresh: refreshAircraft === true
       });
       aircraftEvents = aircraftSnapshot.events;
     } catch {
-      // Fall back to the local aircraft fixture so the rest of the dashboard still loads.
+      // Keep the rest of the dashboard loading without injecting stale mock aircraft.
     }
 
     const mergedEvents = mergeLiveAircraftIntoEvents(events, aircraftEvents);
@@ -83,7 +83,7 @@ app.get(
   }
 );
 
-app.get("/api/v1/aircraft/live", async (request) => {
+app.get("/api/v1/aircraft/live", async (request, reply) => {
   const query = request.query as { refresh?: string | boolean | undefined };
   const refresh = query.refresh === "true" || query.refresh === true;
   let snapshot;
@@ -92,14 +92,16 @@ app.get("/api/v1/aircraft/live", async (request) => {
     snapshot = await getLiveAircraftSnapshot({
       forceRefresh: refresh
     });
-  } catch {
-    snapshot = {
-      fetchedAt: new Date().toISOString(),
-      events: events.filter((event) => event.sourceType === "aircraft")
+  } catch (error) {
+    request.log.warn({ error }, "live aircraft fetch failed");
+    return {
+      ok: false,
+      error: "Live aircraft data is temporarily unavailable."
     };
   }
 
   return {
+    ok: true,
     fetchedAt: snapshot.fetchedAt,
     bbox: getAircraftLiveBbox(),
     count: snapshot.events.length,
