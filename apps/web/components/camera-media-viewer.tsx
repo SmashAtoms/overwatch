@@ -7,6 +7,9 @@ type CameraMediaViewerProps = {
   src: string;
 };
 
+const DEFAULT_IMAGE_REFRESH_MS = 30_000;
+const NWS_RENO_WEATHER_CAM_REFRESH_MS = 120_000;
+
 function isImage(src: string): boolean {
   return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src);
 }
@@ -19,9 +22,33 @@ function isDirectVideo(src: string): boolean {
   return /\.(mp4|webm)(\?|$)/i.test(src);
 }
 
+function getImageRefreshInterval(src: string): number {
+  if (/weather\.gov\/images\/rev\/webcamWCAQ\/latestHiRes\.jpg/i.test(src)) {
+    return NWS_RENO_WEATHER_CAM_REFRESH_MS;
+  }
+
+  return DEFAULT_IMAGE_REFRESH_MS;
+}
+
 export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [imageTick, setImageTick] = useState(0);
+
+  useEffect(() => {
+    if (!isImage(src)) {
+      return;
+    }
+
+    setImageTick(0);
+    const intervalId = window.setInterval(() => {
+      setImageTick((current) => current + 1);
+    }, getImageRefreshInterval(src));
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [src]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -98,7 +125,8 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   }, [src]);
 
   if (isImage(src)) {
-    return <img className="camera-viewer-media" src={src} alt={title} />;
+    const imageSrc = `${src}${src.includes("?") ? "&" : "?"}t=${imageTick}`;
+    return <img className="camera-viewer-media" src={imageSrc} alt={title} />;
   }
 
   if (isHls(src) || isDirectVideo(src)) {

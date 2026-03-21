@@ -10,7 +10,7 @@ import type {
   SourceKind
 } from "@signalstack/contracts";
 import { Badge } from "@signalstack/ui";
-import type { Layer, Map as LeafletMap } from "leaflet";
+import type { Layer, LayerGroup, Map as LeafletMap } from "leaflet";
 import { CameraMediaViewer } from "./camera-media-viewer";
 import type { FlightSubscriptionRecord } from "../lib/api";
 
@@ -86,6 +86,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 const FILTERABLE_SOURCE_KINDS: SourceKind[] = ["aircraft", "atc", "scanner", "camera"];
 const AIRCRAFT_REFRESH_INTERVAL_MS = 15_000;
 const MAX_TRACK_POINTS = 10;
+const DEFAULT_CAMERA_ID = "nv511-4986";
 
 declare global {
   interface Window {
@@ -340,13 +341,12 @@ export function MapViewport({
   const cameraViewerCardRef = useRef<HTMLDivElement | null>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
+  const leafletOverlayGroupRef = useRef<LayerGroup | null>(null);
+  const leafletWeatherGroupRef = useRef<LayerGroup | null>(null);
+  const persistedLeafletViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
+  const persistedGoogleViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
+  const initialCamera = cameras.find((camera) => camera.id === DEFAULT_CAMERA_ID) ?? cameras[0] ?? null;
   const [selectedOverlay, setSelectedOverlay] = useState<SelectedOverlay>(() => {
-    const initialAircraftEvent = events.find((event) => event.sourceType === "aircraft") ?? events[0];
-    if (initialAircraftEvent) {
-      return { type: "event", id: initialAircraftEvent.id };
-    }
-
-    const initialCamera = cameras[0];
     return initialCamera ? { type: "camera", id: initialCamera.id } : null;
   });
   const [liveEvents, setLiveEvents] = useState<SignalEvent[]>(events);
@@ -356,6 +356,7 @@ export function MapViewport({
   const [mapState, setMapState] = useState<"loading" | "ready" | "error">("loading");
   const [mapMode, setMapMode] = useState<MapMode>("leaflet");
   const [cameraScope, setCameraScope] = useState<CameraScope>("rno_airport");
+  const [activeViewerCameraId, setActiveViewerCameraId] = useState<string | null>(() => initialCamera?.id ?? null);
   const [isCameraPopupOpen, setIsCameraPopupOpen] = useState(false);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(true);
   const [flightSubscriptions, setFlightSubscriptions] =
@@ -453,7 +454,11 @@ export function MapViewport({
     selectedOverlay?.type === "camera"
       ? filteredCameras.find((camera) => camera.id === selectedOverlay.id) ?? null
       : null;
-  const viewerCamera = selectedCamera ?? filteredCameras[0] ?? null;
+  const viewerCamera =
+    filteredCameras.find((camera) => camera.id === activeViewerCameraId) ??
+    selectedCamera ??
+    filteredCameras[0] ??
+    null;
   const selectedAircraftDisplayId = getAircraftDisplayIdentifier(selectedEvent);
   const selectedFlightIdentifier = getFlightSubscriptionIdentifier(selectedEvent);
   const selectedAircraftHasTailNumber = hasAircraftTailNumber(selectedEvent);
@@ -556,6 +561,28 @@ export function MapViewport({
   }, [defaultSelectedEvent, filteredCameras, filteredEvents, selectedOverlay]);
 
   useEffect(() => {
+    if (filteredCameras.length === 0) {
+      setActiveViewerCameraId(null);
+      return;
+    }
+
+    setActiveViewerCameraId((current) => {
+      if (current && filteredCameras.some((camera) => camera.id === current)) {
+        return current;
+      }
+
+      if (
+        selectedOverlay?.type === "camera" &&
+        filteredCameras.some((camera) => camera.id === selectedOverlay.id)
+      ) {
+        return selectedOverlay.id;
+      }
+
+      return current ?? filteredCameras[0]?.id ?? null;
+    });
+  }, [filteredCameras, selectedOverlay]);
+
+  useEffect(() => {
     if (!isCameraPopupOpen || typeof document === "undefined") {
       return;
     }
@@ -569,307 +596,62 @@ export function MapViewport({
   }, [isCameraPopupOpen]);
 
   useEffect(() => {
-    if (!mapNodeRef.current) {
+    if (!mapNodeRef.current || leafletMapRef.current) {
       return;
     }
 
     let cancelled = false;
-    const cleanupGoogle: Array<google.maps.Marker | google.maps.Polyline> = [];
-    const cleanupLeaflet: Array<Layer> = [];
 
-    async function initMap() {
+    async function initLeafletMap() {
       try {
-        if (!forceLeafletBase && apiKey && !showWeatherOverlay) {
-          try {
-            const maps = await loadGoogleMaps(apiKey);
-
-            if (!mapNodeRef.current || cancelled) {
-              return;
-            }
-
-            setMapMode("google");
-            mapNodeRef.current.innerHTML = "";
-
-            const map = new maps.Map(mapNodeRef.current, {
-              center: { lat: region.center.lat, lng: region.center.lon },
-              zoom: 9,
-              styles: MAP_STYLE,
-              disableDefaultUI: true,
-              zoomControl: false,
-              fullscreenControl: false,
-              streetViewControl: false,
-              mapTypeControl: false
-            });
-
-            googleMapRef.current = map;
-            const bounds = new maps.LatLngBounds(
-              { lat: region.bbox[1], lng: region.bbox[0] },
-              { lat: region.bbox[3], lng: region.bbox[2] }
-            );
-            map.fitBounds(bounds, 32);
-
-            mapRenderableEvents.forEach((event) => {
-              const eventFlightIdentifier = getFlightSubscriptionIdentifier(event);
-              const aircraftDisplayId = getAircraftDisplayIdentifier(event);
-              const isSubscribedFlight =
-                eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
-              const marker = new maps.Marker({
-                map,
-                position: { lat: event.point.lat, lng: event.point.lon },
-                title: aircraftDisplayId ? `${aircraftDisplayId} | ${event.summary}` : event.summary,
-                icon:
-                  event.sourceType === "aircraft"
-                    ? {
-                        path: AIRCRAFT_SYMBOL_PATH,
-                        rotation: getAircraftHeading(event),
-                        scale: isSubscribedFlight ? 0.9 : 0.78,
-                        fillColor: isSubscribedFlight ? "#7de2d1" : SOURCE_COLORS.aircraft,
-                        fillOpacity: 0.98,
-                        strokeColor: isSubscribedFlight ? "#ffcf6e" : "#07111f",
-                        strokeWeight: isSubscribedFlight ? 3 : 2.3,
-                        anchor: new maps.Point(0, 0)
-                      }
-                    : {
-                        path: maps.SymbolPath.CIRCLE,
-                        scale: 6,
-                        fillColor: SOURCE_COLORS[event.sourceType],
-                        fillOpacity: 0.95,
-                        strokeColor: "#07111f",
-                        strokeWeight: 2
-                      },
-                label:
-                  event.sourceType === "aircraft" && aircraftDisplayId
-                    ? {
-                        text: aircraftDisplayId,
-                        color: "#eef6ff",
-                        fontSize: "11px",
-                        fontWeight: "700"
-                      }
-                    : undefined
-              });
-
-              marker.addListener("click", () => {
-                setSelectedOverlay({ type: "event", id: event.id });
-              });
-
-              cleanupGoogle.push(marker);
-
-              if (event.sourceType === "aircraft") {
-                const trajectoryPath =
-                  (aircraftTracks[event.id] ?? []).map((point) => ({
-                    lat: point.lat,
-                    lng: point.lon
-                  })) || [];
-                const trail = new maps.Polyline({
-                  map,
-                  path: trajectoryPath.length > 1 ? trajectoryPath : createAircraftTrail(event),
-                  geodesic: true,
-                  strokeColor: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
-                  strokeOpacity: 0.9,
-                  strokeWeight: isSubscribedFlight ? 4 : 3
-                });
-                cleanupGoogle.push(trail);
-              }
-            });
-
-            filteredStacks.forEach((stack) => {
-              const marker = new maps.Marker({
-                map,
-                position: { lat: stack.centroid.lat, lng: stack.centroid.lon },
-                title: stack.title,
-                zIndex: 100,
-                icon: {
-                  path: "M -12,0 0,-12 12,0 0,12 z",
-                  fillColor: "#ffffff",
-                  fillOpacity: 0.9,
-                  strokeColor: stack.policy.restricted ? SOURCE_COLORS.scanner : SOURCE_COLORS.atc,
-                  strokeWeight: 2,
-                  scale: 1
-                }
-              });
-
-              marker.addListener("click", () => {
-                setSelectedOverlay({ type: "stack", id: stack.id });
-              });
-
-              cleanupGoogle.push(marker);
-            });
-
-            filteredCameras.forEach((camera) => {
-              const marker = new maps.Marker({
-                map,
-                position: { lat: camera.point.lat, lng: camera.point.lon },
-                title: camera.name,
-                zIndex: 120,
-                icon: {
-                  path: "M -10,-8 10,-8 10,8 -10,8 z",
-                  fillColor: SOURCE_COLORS.camera,
-                  fillOpacity: 0.95,
-                  strokeColor: "#07111f",
-                  strokeWeight: 2,
-                  scale: 1
-                }
-              });
-
-              marker.addListener("click", () => {
-                viewCameraOnDashboard(camera);
-              });
-
-              cleanupGoogle.push(marker);
-            });
-
-            setMapState("ready");
-            return;
-          } catch (_error) {
-            setMapMode("leaflet");
-          }
-        }
+        const leafletModule = await import("leaflet");
+        const L = leafletModule.default;
 
         if (!mapNodeRef.current || cancelled) {
           return;
         }
 
+        setMapMode("leaflet");
         mapNodeRef.current.innerHTML = "";
-        const leafletModule = await import("leaflet");
-        const L = leafletModule.default;
         const map = L.map(mapNodeRef.current, {
           zoomControl: false,
           attributionControl: true
         });
 
         leafletMapRef.current = map;
+        leafletOverlayGroupRef.current = L.layerGroup().addTo(map);
+        leafletWeatherGroupRef.current = L.layerGroup().addTo(map);
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: "&copy; OpenStreetMap contributors"
         }).addTo(map);
 
-        if (showWeatherOverlay) {
-          const radarLayer = L.tileLayer.wms(NOAA_DOPPLER_WMS_URL, {
-            layers: NOAA_DOPPLER_LAYER,
-            format: "image/png",
-            transparent: true,
-            opacity: 0.66,
-            version: "1.3.0",
-            attribution: "NOAA/NCEP MRMS Composite Radar"
-          }).addTo(map);
-
-          cleanupLeaflet.push(radarLayer);
-          if (openWeatherMapApiKey) {
-            const precipitationLayer = L.tileLayer(
-              OPENWEATHER_PRECIPITATION_URL.replace("{apiKey}", openWeatherMapApiKey),
-              {
-                opacity: 0.52,
-                attribution: "OpenWeather precipitation layer"
-              }
-            ).addTo(map);
-
-            const cloudsLayer = L.tileLayer(
-              OPENWEATHER_CLOUDS_URL.replace("{apiKey}", openWeatherMapApiKey),
-              {
-                opacity: 0.36,
-                attribution: "OpenWeather cloud layer"
-              }
-            ).addTo(map);
-
-            cleanupLeaflet.push(precipitationLayer);
-            cleanupLeaflet.push(cloudsLayer);
-          }
+        if (persistedLeafletViewRef.current) {
+          map.setView(
+            [persistedLeafletViewRef.current.center.lat, persistedLeafletViewRef.current.center.lon],
+            persistedLeafletViewRef.current.zoom,
+            { animate: false }
+          );
+        } else {
+          map.fitBounds(createRegionBounds(region), {
+            padding: [24, 24]
+          });
         }
 
-        map.fitBounds(createRegionBounds(region), {
-          padding: [24, 24]
+        map.on("moveend zoomend", () => {
+          const center = map.getCenter();
+          persistedLeafletViewRef.current = {
+            center: {
+              lat: center.lat,
+              lon: center.lng
+            },
+            zoom: map.getZoom()
+          };
         });
 
-        mapRenderableEvents.forEach((event) => {
-          const eventFlightIdentifier = getFlightSubscriptionIdentifier(event);
-          const aircraftDisplayId = getAircraftDisplayIdentifier(event);
-          const isSubscribedFlight =
-            eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
-          const marker =
-            event.sourceType === "aircraft" && aircraftDisplayId
-              ? L.marker([event.point.lat, event.point.lon], {
-                  icon: L.divIcon(createLeafletAircraftIcon(event, aircraftDisplayId, isSubscribedFlight))
-                })
-                  .addTo(map)
-                  .bindTooltip(
-                    isSubscribedFlight
-                      ? `${aircraftDisplayId} | ${event.summary} | webhook active`
-                      : `${aircraftDisplayId} | ${event.summary}`
-                  )
-              : L.circleMarker([event.point.lat, event.point.lon], {
-                  radius: 6,
-                  fillColor: SOURCE_COLORS[event.sourceType],
-                  color: "#07111f",
-                  weight: 2,
-                  opacity: 1,
-                  fillOpacity: 0.95
-                })
-                  .addTo(map)
-                  .bindTooltip(event.summary);
-
-          marker.on("click", () => {
-            setSelectedOverlay({ type: "event", id: event.id });
-          });
-
-          cleanupLeaflet.push(marker);
-
-          if (event.sourceType === "aircraft") {
-            const trajectoryPath = (aircraftTracks[event.id] ?? []).map(
-              (point) => [point.lat, point.lon] as [number, number]
-            );
-            const trail = L.polyline(
-              trajectoryPath.length > 1
-                ? trajectoryPath
-                : createAircraftTrail(event).map((point) => [point.lat, point.lng] as [number, number]),
-              {
-                color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
-                weight: isSubscribedFlight ? 4 : 3,
-                opacity: 0.9
-              }
-            ).addTo(map);
-            cleanupLeaflet.push(trail);
-          }
-        });
-
-        filteredStacks.forEach((stack) => {
-          const marker = L.circleMarker([stack.centroid.lat, stack.centroid.lon], {
-            radius: 10,
-            fillColor: "#ffffff",
-            color: stack.policy.restricted ? SOURCE_COLORS.scanner : SOURCE_COLORS.atc,
-            weight: 3,
-            opacity: 1,
-            fillOpacity: 0.75
-          })
-            .addTo(map)
-            .bindTooltip(stack.title);
-
-          marker.on("click", () => {
-            setSelectedOverlay({ type: "stack", id: stack.id });
-          });
-
-          cleanupLeaflet.push(marker);
-        });
-
-        filteredCameras.forEach((camera) => {
-          const marker = L.circleMarker([camera.point.lat, camera.point.lon], {
-            radius: 8,
-            fillColor: SOURCE_COLORS.camera,
-            color: "#07111f",
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.95
-          })
-            .addTo(map)
-            .bindTooltip(camera.name);
-
-          marker.on("click", () => {
-            viewCameraOnDashboard(camera);
-          });
-
-          cleanupLeaflet.push(marker);
-        });
-
-        setMapState("ready");
+        if (!cancelled) {
+          setMapState("ready");
+        }
       } catch (_error) {
         if (!cancelled) {
           setMapState("error");
@@ -877,20 +659,194 @@ export function MapViewport({
       }
     }
 
-    setMapState("loading");
-    void initMap();
+    if (mapState !== "ready") {
+      setMapState("loading");
+    }
+    void initLeafletMap();
 
     return () => {
       cancelled = true;
-      cleanupGoogle.forEach((overlay) => overlay.setMap(null));
-      cleanupLeaflet.forEach((overlay) => overlay.remove());
+      leafletOverlayGroupRef.current?.clearLayers();
+      leafletWeatherGroupRef.current?.clearLayers();
+      leafletOverlayGroupRef.current = null;
+      leafletWeatherGroupRef.current = null;
       if (leafletMapRef.current) {
         leafletMapRef.current.remove();
         leafletMapRef.current = null;
       }
-      googleMapRef.current = null;
     };
-  }, [aircraftTracks, apiKey, filteredCameras, filteredEvents, filteredStacks, mapRenderableEvents, openWeatherMapApiKey, region, showWeatherOverlay, subscribedFlightNumbers]);
+  }, [mapState, region]);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const weatherGroup = leafletWeatherGroupRef.current;
+    if (!map || !weatherGroup) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncWeatherLayers() {
+      const leafletModule = await import("leaflet");
+      const L = leafletModule.default;
+
+      if (cancelled || !leafletWeatherGroupRef.current) {
+        return;
+      }
+
+      const weatherGroup = leafletWeatherGroupRef.current;
+      weatherGroup.clearLayers();
+
+      if (!showWeatherOverlay) {
+        return;
+      }
+
+      const radarLayer = L.tileLayer.wms(NOAA_DOPPLER_WMS_URL, {
+        layers: NOAA_DOPPLER_LAYER,
+        format: "image/png",
+        transparent: true,
+        opacity: 0.66,
+        version: "1.3.0",
+        attribution: "NOAA/NCEP MRMS Composite Radar"
+      });
+      weatherGroup.addLayer(radarLayer);
+
+      if (openWeatherMapApiKey) {
+        const precipitationLayer = L.tileLayer(
+          OPENWEATHER_PRECIPITATION_URL.replace("{apiKey}", openWeatherMapApiKey),
+          {
+            opacity: 0.52,
+            attribution: "OpenWeather precipitation layer"
+          }
+        );
+
+        const cloudsLayer = L.tileLayer(
+          OPENWEATHER_CLOUDS_URL.replace("{apiKey}", openWeatherMapApiKey),
+          {
+            opacity: 0.36,
+            attribution: "OpenWeather cloud layer"
+          }
+        );
+
+        weatherGroup.addLayer(precipitationLayer);
+        weatherGroup.addLayer(cloudsLayer);
+      }
+    }
+
+    void syncWeatherLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapState, openWeatherMapApiKey, showWeatherOverlay]);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const overlayGroup = leafletOverlayGroupRef.current;
+    if (!map || !overlayGroup) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncOverlayLayers() {
+      const leafletModule = await import("leaflet");
+      const L = leafletModule.default;
+
+      if (cancelled || !leafletOverlayGroupRef.current) {
+        return;
+      }
+
+      const overlayGroup = leafletOverlayGroupRef.current;
+      overlayGroup.clearLayers();
+
+      mapRenderableEvents.forEach((event) => {
+        const eventFlightIdentifier = getFlightSubscriptionIdentifier(event);
+        const aircraftDisplayId = getAircraftDisplayIdentifier(event);
+        const isSubscribedFlight =
+          eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
+        const marker =
+          event.sourceType === "aircraft" && aircraftDisplayId
+            ? L.marker([event.point.lat, event.point.lon], {
+                icon: L.divIcon(createLeafletAircraftIcon(event, aircraftDisplayId, isSubscribedFlight))
+              }).bindTooltip(
+                isSubscribedFlight
+                  ? `${aircraftDisplayId} | ${event.summary} | webhook active`
+                  : `${aircraftDisplayId} | ${event.summary}`
+              )
+            : L.circleMarker([event.point.lat, event.point.lon], {
+                radius: 6,
+                fillColor: SOURCE_COLORS[event.sourceType],
+                color: "#07111f",
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.95
+              }).bindTooltip(event.summary);
+
+        marker.on("click", () => {
+          setSelectedOverlay({ type: "event", id: event.id });
+        });
+        overlayGroup.addLayer(marker);
+
+        if (event.sourceType === "aircraft") {
+          const trajectoryPath = (aircraftTracks[event.id] ?? []).map(
+            (point) => [point.lat, point.lon] as [number, number]
+          );
+          const trail = L.polyline(
+            trajectoryPath.length > 1
+              ? trajectoryPath
+              : createAircraftTrail(event).map((point) => [point.lat, point.lng] as [number, number]),
+            {
+              color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
+              weight: isSubscribedFlight ? 4 : 3,
+              opacity: 0.9
+            }
+          );
+          overlayGroup.addLayer(trail);
+        }
+      });
+
+      filteredStacks.forEach((stack) => {
+        const marker = L.circleMarker([stack.centroid.lat, stack.centroid.lon], {
+          radius: 10,
+          fillColor: "#ffffff",
+          color: stack.policy.restricted ? SOURCE_COLORS.scanner : SOURCE_COLORS.atc,
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.75
+        }).bindTooltip(stack.title);
+
+        marker.on("click", () => {
+          setSelectedOverlay({ type: "stack", id: stack.id });
+        });
+
+        overlayGroup.addLayer(marker);
+      });
+
+      filteredCameras.forEach((camera) => {
+        const marker = L.circleMarker([camera.point.lat, camera.point.lon], {
+          radius: 8,
+          fillColor: SOURCE_COLORS.camera,
+          color: "#07111f",
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.95
+        }).bindTooltip(camera.name);
+
+        marker.on("click", () => {
+          viewCameraOnDashboard(camera);
+        });
+
+        overlayGroup.addLayer(marker);
+      });
+    }
+
+    void syncOverlayLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftTracks, filteredCameras, filteredStacks, mapRenderableEvents, mapState, subscribedFlightNumbers]);
 
   async function subscribeSelectedFlight() {
     if (!selectedFlightIdentifier) {
@@ -1094,9 +1050,13 @@ export function MapViewport({
         fetchedAt: payload.fetchedAt
       }));
 
-      if (payload.items[0]) {
+      if (!options?.silent && payload.items[0]) {
         setSelectedOverlay((current) => {
           if (current?.type === "event" && payload.items.some((item) => item.id === current.id)) {
+            return current;
+          }
+
+          if (current?.type === "camera" || current?.type === "stack") {
             return current;
           }
 
@@ -1123,6 +1083,7 @@ export function MapViewport({
   }, [clientGatewayApiUrl]);
 
   function viewCameraOnDashboard(camera: CameraSource, options?: { openPopup?: boolean }) {
+    setActiveViewerCameraId(camera.id);
     setSelectedOverlay({ type: "camera", id: camera.id });
     focusOnPoint(camera.point, 13);
     cameraViewerCardRef.current?.scrollIntoView({
