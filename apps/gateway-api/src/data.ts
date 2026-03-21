@@ -255,6 +255,17 @@ export const stacks: InformationStack[] = [
 
 export const cameras: CameraSource[] = [
   {
+    id: "cam-tahoe-airport-youtube",
+    name: "South Lake Tahoe Airport",
+    provider: "YouTube Live",
+    point: { lon: -119.9953, lat: 38.8939 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=Gq1kM9PqNg4",
+    previewUrl:
+      "https://www.youtube.com/embed/Gq1kM9PqNg4?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
     id: "cam-ndot-plumb-airport",
     name: "Nevada 511 I-580 @ Plumb Airport",
     provider: "Nevada 511",

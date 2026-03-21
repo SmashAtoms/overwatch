@@ -25,6 +25,7 @@ type Nevada511Camera = {
 };
 
 const CACHE_TTL_MS = 60_000;
+const CUSTOM_CAMERA_ID_PREFIX = "cam-";
 
 let cameraCache:
   | {
@@ -147,6 +148,11 @@ export async function loadCameraSources(): Promise<CameraSource[]> {
 
   const apiKey = process.env.NEVADA_511_API_KEY;
 
+  const customCameras = fallbackCameras.filter((camera) => camera.id.startsWith(CUSTOM_CAMERA_ID_PREFIX));
+  const fallbackNevadaCameras = fallbackCameras.filter(
+    (camera) => !camera.id.startsWith(CUSTOM_CAMERA_ID_PREFIX)
+  );
+
   if (!apiKey) {
     return fallbackCameras;
   }
@@ -179,7 +185,8 @@ export async function loadCameraSources(): Promise<CameraSource[]> {
       }
     });
 
-    const data = dedupedCameras.size > 0 ? Array.from(dedupedCameras.values()) : fallbackCameras;
+    const mergedCameras = dedupedCameras.size > 0 ? Array.from(dedupedCameras.values()) : fallbackNevadaCameras;
+    const data = [...customCameras, ...mergedCameras];
 
     cameraCache = {
       expiresAt: Date.now() + CACHE_TTL_MS,

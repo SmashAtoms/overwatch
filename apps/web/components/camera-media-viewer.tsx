@@ -22,6 +22,10 @@ function isDirectVideo(src: string): boolean {
   return /\.(mp4|webm)(\?|$)/i.test(src);
 }
 
+function isYouTubeEmbed(src: string): boolean {
+  return /youtube\.com\/embed|youtube-nocookie\.com\/embed/i.test(src);
+}
+
 function getImageRefreshInterval(src: string): number {
   if (/weather\.gov\/images\/rev\/webcamWCAQ\/latestHiRes\.jpg/i.test(src)) {
     return NWS_RENO_WEATHER_CAM_REFRESH_MS;
@@ -34,6 +38,10 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [imageTick, setImageTick] = useState(0);
+
+  useEffect(() => {
+    setStatus("idle");
+  }, [src]);
 
   useEffect(() => {
     if (!isImage(src)) {
@@ -52,12 +60,20 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !isHls(src)) {
+    if (!video || (!isHls(src) && !isDirectVideo(src))) {
       return;
     }
 
     let cancelled = false;
     let hlsInstance: { destroy: () => void } | null = null;
+
+    async function tryPlay(currentVideo: HTMLVideoElement) {
+      try {
+        await currentVideo.play();
+      } catch {
+        // Some browsers still block autoplay even when muted.
+      }
+    }
 
     async function attachHls() {
       const currentVideo = videoRef.current;
@@ -67,8 +83,15 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
 
       setStatus("loading");
 
+      if (isDirectVideo(src)) {
+        currentVideo.src = src;
+        void tryPlay(currentVideo);
+        return;
+      }
+
       if (currentVideo.canPlayType("application/vnd.apple.mpegurl")) {
         currentVideo.src = src;
+        void tryPlay(currentVideo);
         return;
       }
 
@@ -90,6 +113,7 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!cancelled) {
             setStatus("ready");
+            void tryPlay(currentVideo);
           }
         });
         hls.on(Hls.Events.ERROR, () => {
@@ -106,10 +130,20 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
       }
     }
 
-    const handleLoaded = () => setStatus("ready");
+    const handleLoaded = () => {
+      setStatus("ready");
+      const currentVideo = videoRef.current;
+      if (currentVideo) {
+        void tryPlay(currentVideo);
+      }
+    };
     const handleError = () => setStatus("error");
 
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
     video.addEventListener("loadeddata", handleLoaded);
+    video.addEventListener("loadedmetadata", handleLoaded);
     video.addEventListener("error", handleError);
 
     void attachHls();
@@ -117,7 +151,9 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
     return () => {
       cancelled = true;
       video.removeEventListener("loadeddata", handleLoaded);
+      video.removeEventListener("loadedmetadata", handleLoaded);
       video.removeEventListener("error", handleError);
+      video.pause();
       if (hlsInstance) {
         hlsInstance.destroy();
       }
@@ -135,7 +171,6 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         <video
           ref={videoRef}
           className="camera-viewer-media"
-          src={isDirectVideo(src) ? src : undefined}
           controls
           muted
           playsInline
@@ -155,7 +190,9 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
       src={src}
       title={title}
       loading="lazy"
-      referrerPolicy="no-referrer"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      allowFullScreen
+      referrerPolicy={isYouTubeEmbed(src) ? "strict-origin-when-cross-origin" : "no-referrer"}
     />
   );
 }

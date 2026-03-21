@@ -29,8 +29,9 @@ export default async function HomePage() {
     <main className="shell">
       <section className="workspace-summary">
         <div>
-          <h1 className="workspace-title">Reno SignalStack</h1>
-          <p className="workspace-subtitle">Map and live camera workspace for the Reno region</p>
+          <div className="workspace-kicker">Smash Atoms</div>
+          <h1 className="workspace-title">The Overwatch</h1>
+          <p className="workspace-subtitle">Regional live-view dashboard for Reno operations, cameras, and signals</p>
         </div>
         <div className="tag-row">
           <Badge tone="accent">{DEFAULT_REGION.name}</Badge>

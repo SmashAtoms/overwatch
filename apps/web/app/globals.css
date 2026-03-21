@@ -128,6 +128,15 @@ a {
   line-height: 0.95;
 }
 
+.workspace-kicker {
+  margin-bottom: 0.35rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+}
+
 .workspace-subtitle {
   margin: 0.45rem 0 0;
   color: var(--muted);

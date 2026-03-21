@@ -37,6 +37,14 @@ type AircraftTrackPoint = {
 
 type AircraftTrackHistory = Record<string, AircraftTrackPoint[]>;
 
+type AnimatedAircraftPosition = {
+  lat: number;
+  lon: number;
+  headingDeg: number;
+};
+
+type AnimatedAircraftPositions = Record<string, AnimatedAircraftPosition>;
+
 type SelectedOverlay =
   | { type: "event"; id: string }
   | { type: "stack"; id: string }
@@ -44,7 +52,6 @@ type SelectedOverlay =
   | null;
 
 type MapMode = "google" | "leaflet";
-type CameraScope = "rno_airport" | "reno_corridor";
 type MapDirection = "north" | "south" | "east" | "west";
 type MapZoom = "in" | "out";
 
@@ -85,6 +92,7 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 
 const FILTERABLE_SOURCE_KINDS: SourceKind[] = ["aircraft", "atc", "scanner", "camera"];
 const AIRCRAFT_REFRESH_INTERVAL_MS = 15_000;
+const AIRCRAFT_ANIMATION_DURATION_MS = 12_000;
 const MAX_TRACK_POINTS = 10;
 const DEFAULT_CAMERA_ID = "nv511-4986";
 
@@ -190,6 +198,21 @@ function mergeAircraftTrackHistory(
   return next;
 }
 
+function buildAircraftAnimatedPositions(events: SignalEvent[]): AnimatedAircraftPositions {
+  return events.reduce<AnimatedAircraftPositions>((acc, event) => {
+    if (event.sourceType !== "aircraft") {
+      return acc;
+    }
+
+    acc[event.id] = {
+      lat: event.point.lat,
+      lon: event.point.lon,
+      headingDeg: getAircraftHeading(event)
+    };
+    return acc;
+  }, {});
+}
+
 function getAircraftHeading(event: SignalEvent): number {
   return typeof event.rawPayload?.headingDeg === "number" ? event.rawPayload.headingDeg : 0;
 }
@@ -233,18 +256,6 @@ function milesBetween(left: { lat: number; lon: number }, right: { lat: number; 
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return earthRadiusMiles * c;
-}
-
-function isCorridorCamera(camera: CameraSource): boolean {
-  return /\bI-?80\b|\bUS-?395\b|\b395\b/i.test(camera.name);
-}
-
-function isAirportCamera(camera: CameraSource, krnoPoint: { lat: number; lon: number }): boolean {
-  const distanceMiles = milesBetween(krnoPoint, camera.point);
-  return (
-    distanceMiles <= 3.5 ||
-    /\bairport\b|\bplumb\b|\bmill\b|\bvillanova\b|\bkietzke\b/i.test(camera.name)
-  );
 }
 
 function getAircraftDisplayIdentifier(event: SignalEvent | null): string | null {
@@ -341,8 +352,13 @@ export function MapViewport({
   const cameraViewerCardRef = useRef<HTMLDivElement | null>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
   const leafletMapRef = useRef<LeafletMap | null>(null);
-  const leafletOverlayGroupRef = useRef<LayerGroup | null>(null);
+  const leafletEventGroupRef = useRef<LayerGroup | null>(null);
+  const leafletStackGroupRef = useRef<LayerGroup | null>(null);
+  const leafletCameraGroupRef = useRef<LayerGroup | null>(null);
   const leafletWeatherGroupRef = useRef<LayerGroup | null>(null);
+  const currentAnimatedAircraftPositionsRef = useRef<AnimatedAircraftPositions>({});
+  const aircraftAnimationStartRef = useRef<AnimatedAircraftPositions>({});
+  const aircraftAnimationTargetRef = useRef<AnimatedAircraftPositions>({});
   const persistedLeafletViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
   const persistedGoogleViewRef = useRef<{ center: { lat: number; lon: number }; zoom: number } | null>(null);
   const initialCamera = cameras.find((camera) => camera.id === DEFAULT_CAMERA_ID) ?? cameras[0] ?? null;
@@ -353,12 +369,14 @@ export function MapViewport({
   const [aircraftTracks, setAircraftTracks] = useState<AircraftTrackHistory>(() =>
     buildAircraftTrackHistory(events)
   );
+  const [animatedAircraftPositions, setAnimatedAircraftPositions] = useState<AnimatedAircraftPositions>(() =>
+    buildAircraftAnimatedPositions(events)
+  );
   const [mapState, setMapState] = useState<"loading" | "ready" | "error">("loading");
   const [mapMode, setMapMode] = useState<MapMode>("leaflet");
-  const [cameraScope, setCameraScope] = useState<CameraScope>("rno_airport");
   const [activeViewerCameraId, setActiveViewerCameraId] = useState<string | null>(() => initialCamera?.id ?? null);
   const [isCameraPopupOpen, setIsCameraPopupOpen] = useState(false);
-  const [showWeatherOverlay, setShowWeatherOverlay] = useState(true);
+  const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
   const [flightSubscriptions, setFlightSubscriptions] =
     useState<FlightSubscriptionRecord[]>(initialFlightSubscriptions);
   const [flightActionState, setFlightActionState] = useState<{
@@ -374,10 +392,10 @@ export function MapViewport({
     fetchedAt: events.find((event) => event.sourceType === "aircraft")?.ingestedAt ?? null
   }));
   const [visibleKinds, setVisibleKinds] = useState<Record<SourceKind, boolean>>({
-    aircraft: true,
-    atc: true,
-    scanner: true,
-    weather: true,
+    aircraft: false,
+    atc: false,
+    scanner: false,
+    weather: false,
     camera: true
   });
 
@@ -407,28 +425,24 @@ export function MapViewport({
     const krnoViewpoint = region.savedViewpoints.find((viewpoint) => viewpoint.id === "krno");
     return krnoViewpoint ? { lat: krnoViewpoint.point.lat, lon: krnoViewpoint.point.lon } : { lat: 39.4991, lon: -119.7681 };
   }, [region.savedViewpoints]);
-  const scopedCameras = useMemo(() => {
-    const activeCameras = cameras.filter((camera) => camera.status === "active");
+  const scopedCameras = useMemo(
+    () =>
+      cameras
+        .filter((camera) => camera.status === "active")
+        .sort((left, right) => {
+          if (left.id === DEFAULT_CAMERA_ID) {
+            return -1;
+          }
 
-    if (cameraScope === "reno_corridor") {
-      return activeCameras.filter(isCorridorCamera).sort((left, right) => {
-        const embedScore = Number(right.embedMode === "embed") - Number(left.embedMode === "embed");
-        return embedScore !== 0 ? embedScore : left.name.localeCompare(right.name);
-      });
-    }
+          if (right.id === DEFAULT_CAMERA_ID) {
+            return 1;
+          }
 
-    return activeCameras
-      .filter((camera) => isAirportCamera(camera, krnoPoint))
-      .sort((left, right) => {
-        const embedScore = Number(right.embedMode === "embed") - Number(left.embedMode === "embed");
-        if (embedScore !== 0) {
-          return embedScore;
-        }
-
-        return milesBetween(krnoPoint, left.point) - milesBetween(krnoPoint, right.point);
-      })
-      .slice(0, 18);
-  }, [cameraScope, cameras, krnoPoint]);
+          const embedScore = Number(right.embedMode === "embed") - Number(left.embedMode === "embed");
+          return embedScore !== 0 ? embedScore : left.name.localeCompare(right.name);
+        }),
+    [cameras]
+  );
   const filteredCameras = useMemo(
     () => (visibleKinds.camera ? scopedCameras : []),
     [scopedCameras, visibleKinds.camera]
@@ -472,8 +486,6 @@ export function MapViewport({
   const viewerHasEmbeddedFeed = Boolean(
     viewerCamera && viewerCamera.embedMode === "embed" && viewerCamera.previewUrl
   );
-  const cameraScopeLabel =
-    cameraScope === "rno_airport" ? "RNO airport perimeter live feeds" : "Reno corridor live feeds";
   const orderedCameras = useMemo(() => {
     if (!viewerCamera) {
       return filteredCameras;
@@ -500,8 +512,17 @@ export function MapViewport({
     selectedEvent?.sourceType === "aircraft" ? aircraftTracks[selectedEvent.id] ?? [] : [];
 
   useEffect(() => {
+    currentAnimatedAircraftPositionsRef.current = animatedAircraftPositions;
+  }, [animatedAircraftPositions]);
+
+  useEffect(() => {
     setLiveEvents(events);
     setAircraftTracks(buildAircraftTrackHistory(events));
+    const nextPositions = buildAircraftAnimatedPositions(events);
+    currentAnimatedAircraftPositionsRef.current = nextPositions;
+    aircraftAnimationStartRef.current = nextPositions;
+    aircraftAnimationTargetRef.current = nextPositions;
+    setAnimatedAircraftPositions(nextPositions);
     setAircraftRefreshState((current) => ({
       ...current,
       fetchedAt: events.find((event) => event.sourceType === "aircraft")?.ingestedAt ?? current.fetchedAt
@@ -515,6 +536,68 @@ export function MapViewport({
         liveEvents.filter((event) => event.sourceType === "aircraft")
       )
     );
+  }, [liveEvents]);
+
+  useEffect(() => {
+    const aircraftEvents = liveEvents.filter((event) => event.sourceType === "aircraft");
+    if (aircraftEvents.length === 0) {
+      aircraftAnimationStartRef.current = {};
+      aircraftAnimationTargetRef.current = {};
+      setAnimatedAircraftPositions({});
+      return;
+    }
+
+    const targets = aircraftEvents.reduce<AnimatedAircraftPositions>((acc, event) => {
+      acc[event.id] = {
+        lat: event.point.lat,
+        lon: event.point.lon,
+        headingDeg: getAircraftHeading(event)
+      };
+      return acc;
+    }, {});
+
+    let frameId = 0;
+    const startedAt = performance.now();
+    const animationStart: AnimatedAircraftPositions = {};
+
+    aircraftEvents.forEach((event) => {
+      animationStart[event.id] =
+        currentAnimatedAircraftPositionsRef.current[event.id] ??
+        aircraftAnimationTargetRef.current[event.id] ??
+        targets[event.id];
+    });
+
+    aircraftAnimationStartRef.current = animationStart;
+    aircraftAnimationTargetRef.current = targets;
+
+    const animate = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / AIRCRAFT_ANIMATION_DURATION_MS);
+      const next: AnimatedAircraftPositions = {};
+
+      aircraftEvents.forEach((event) => {
+        const start = aircraftAnimationStartRef.current[event.id] ?? targets[event.id];
+        const target = aircraftAnimationTargetRef.current[event.id] ?? targets[event.id];
+        next[event.id] = {
+          lat: start.lat + (target.lat - start.lat) * progress,
+          lon: start.lon + (target.lon - start.lon) * progress,
+          headingDeg: start.headingDeg + (target.headingDeg - start.headingDeg) * progress
+        };
+      });
+
+      setAnimatedAircraftPositions(next);
+
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(animate);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(animate);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, [liveEvents]);
 
   useEffect(() => {
@@ -619,7 +702,9 @@ export function MapViewport({
         });
 
         leafletMapRef.current = map;
-        leafletOverlayGroupRef.current = L.layerGroup().addTo(map);
+        leafletEventGroupRef.current = L.layerGroup().addTo(map);
+        leafletStackGroupRef.current = L.layerGroup().addTo(map);
+        leafletCameraGroupRef.current = L.layerGroup().addTo(map);
         leafletWeatherGroupRef.current = L.layerGroup().addTo(map);
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -659,23 +744,25 @@ export function MapViewport({
       }
     }
 
-    if (mapState !== "ready") {
-      setMapState("loading");
-    }
+    setMapState("loading");
     void initLeafletMap();
 
     return () => {
       cancelled = true;
-      leafletOverlayGroupRef.current?.clearLayers();
+      leafletEventGroupRef.current?.clearLayers();
+      leafletStackGroupRef.current?.clearLayers();
+      leafletCameraGroupRef.current?.clearLayers();
       leafletWeatherGroupRef.current?.clearLayers();
-      leafletOverlayGroupRef.current = null;
+      leafletEventGroupRef.current = null;
+      leafletStackGroupRef.current = null;
+      leafletCameraGroupRef.current = null;
       leafletWeatherGroupRef.current = null;
       if (leafletMapRef.current) {
         leafletMapRef.current.remove();
         leafletMapRef.current = null;
       }
     };
-  }, [mapState, region]);
+  }, [region]);
 
   useEffect(() => {
     const map = leafletMapRef.current;
@@ -742,22 +829,22 @@ export function MapViewport({
 
   useEffect(() => {
     const map = leafletMapRef.current;
-    const overlayGroup = leafletOverlayGroupRef.current;
-    if (!map || !overlayGroup) {
+    const eventGroup = leafletEventGroupRef.current;
+    if (!map || !eventGroup) {
       return;
     }
 
     let cancelled = false;
 
-    async function syncOverlayLayers() {
+    async function syncEventLayers() {
       const leafletModule = await import("leaflet");
       const L = leafletModule.default;
 
-      if (cancelled || !leafletOverlayGroupRef.current) {
+      if (cancelled || !leafletEventGroupRef.current) {
         return;
       }
 
-      const overlayGroup = leafletOverlayGroupRef.current;
+      const overlayGroup = leafletEventGroupRef.current;
       overlayGroup.clearLayers();
 
       mapRenderableEvents.forEach((event) => {
@@ -765,16 +852,34 @@ export function MapViewport({
         const aircraftDisplayId = getAircraftDisplayIdentifier(event);
         const isSubscribedFlight =
           eventFlightIdentifier ? subscribedFlightNumbers.has(eventFlightIdentifier) : false;
+        const animatedPosition = event.sourceType === "aircraft" ? animatedAircraftPositions[event.id] : null;
+        const markerLat = animatedPosition?.lat ?? event.point.lat;
+        const markerLon = animatedPosition?.lon ?? event.point.lon;
+        const markerEvent =
+          animatedPosition && event.sourceType === "aircraft"
+            ? {
+                ...event,
+                point: {
+                  ...event.point,
+                  lat: markerLat,
+                  lon: markerLon
+                },
+                rawPayload: {
+                  ...event.rawPayload,
+                  headingDeg: animatedPosition.headingDeg
+                }
+              }
+            : event;
         const marker =
           event.sourceType === "aircraft" && aircraftDisplayId
-            ? L.marker([event.point.lat, event.point.lon], {
-                icon: L.divIcon(createLeafletAircraftIcon(event, aircraftDisplayId, isSubscribedFlight))
+            ? L.marker([markerLat, markerLon], {
+                icon: L.divIcon(createLeafletAircraftIcon(markerEvent, aircraftDisplayId, isSubscribedFlight))
               }).bindTooltip(
                 isSubscribedFlight
                   ? `${aircraftDisplayId} | ${event.summary} | webhook active`
                   : `${aircraftDisplayId} | ${event.summary}`
               )
-            : L.circleMarker([event.point.lat, event.point.lon], {
+            : L.circleMarker([markerLat, markerLon], {
                 radius: 6,
                 fillColor: SOURCE_COLORS[event.sourceType],
                 color: "#07111f",
@@ -788,23 +893,48 @@ export function MapViewport({
         });
         overlayGroup.addLayer(marker);
 
-        if (event.sourceType === "aircraft") {
+        if (event.sourceType === "aircraft" && selectedEvent?.sourceType === "aircraft" && selectedEvent.id === event.id) {
           const trajectoryPath = (aircraftTracks[event.id] ?? []).map(
             (point) => [point.lat, point.lon] as [number, number]
           );
-          const trail = L.polyline(
-            trajectoryPath.length > 1
-              ? trajectoryPath
-              : createAircraftTrail(event).map((point) => [point.lat, point.lng] as [number, number]),
-            {
+          if (trajectoryPath.length > 1) {
+            const trail = L.polyline(trajectoryPath, {
               color: isSubscribedFlight ? "#ffcf6e" : SOURCE_COLORS.aircraft,
               weight: isSubscribedFlight ? 4 : 3,
               opacity: 0.9
-            }
-          );
-          overlayGroup.addLayer(trail);
+            });
+            overlayGroup.addLayer(trail);
+          }
         }
       });
+    }
+
+    void syncEventLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aircraftTracks, animatedAircraftPositions, mapRenderableEvents, mapState, selectedEvent, subscribedFlightNumbers]);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const stackGroup = leafletStackGroupRef.current;
+    if (!map || !stackGroup) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncStackLayers() {
+      const leafletModule = await import("leaflet");
+      const L = leafletModule.default;
+
+      if (cancelled || !leafletStackGroupRef.current) {
+        return;
+      }
+
+      const overlayGroup = leafletStackGroupRef.current;
+      overlayGroup.clearLayers();
 
       filteredStacks.forEach((stack) => {
         const marker = L.circleMarker([stack.centroid.lat, stack.centroid.lon], {
@@ -822,13 +952,42 @@ export function MapViewport({
 
         overlayGroup.addLayer(marker);
       });
+    }
+
+    void syncStackLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredStacks, mapState]);
+
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    const cameraGroup = leafletCameraGroupRef.current;
+    if (!map || !cameraGroup) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function syncCameraLayers() {
+      const leafletModule = await import("leaflet");
+      const L = leafletModule.default;
+
+      if (cancelled || !leafletCameraGroupRef.current) {
+        return;
+      }
+
+      const overlayGroup = leafletCameraGroupRef.current;
+      overlayGroup.clearLayers();
 
       filteredCameras.forEach((camera) => {
+        const isActiveCamera = activeViewerCameraId === camera.id;
         const marker = L.circleMarker([camera.point.lat, camera.point.lon], {
-          radius: 8,
+          radius: isActiveCamera ? 10 : 8,
           fillColor: SOURCE_COLORS.camera,
-          color: "#07111f",
-          weight: 2,
+          color: isActiveCamera ? "#eef6ff" : "#07111f",
+          weight: isActiveCamera ? 3 : 2,
           opacity: 1,
           fillOpacity: 0.95
         }).bindTooltip(camera.name);
@@ -841,12 +1000,12 @@ export function MapViewport({
       });
     }
 
-    void syncOverlayLayers();
+    void syncCameraLayers();
 
     return () => {
       cancelled = true;
     };
-  }, [aircraftTracks, filteredCameras, filteredStacks, mapRenderableEvents, mapState, subscribedFlightNumbers]);
+  }, [activeViewerCameraId, filteredCameras, mapState]);
 
   async function subscribeSelectedFlight() {
     if (!selectedFlightIdentifier) {
@@ -1095,36 +1254,6 @@ export function MapViewport({
     }
   }
 
-  function panMap(direction: MapDirection) {
-    const stepPx = 140;
-
-    if (mapMode === "google" && googleMapRef.current) {
-      const panBy =
-        direction === "north"
-          ? { x: 0, y: -stepPx }
-          : direction === "south"
-            ? { x: 0, y: stepPx }
-            : direction === "east"
-              ? { x: stepPx, y: 0 }
-              : { x: -stepPx, y: 0 };
-
-      googleMapRef.current.panBy(panBy.x, panBy.y);
-      return;
-    }
-
-    if (leafletMapRef.current) {
-      const offset =
-        direction === "north"
-          ? [0, -stepPx]
-          : direction === "south"
-            ? [0, stepPx]
-            : direction === "east"
-              ? [stepPx, 0]
-              : [-stepPx, 0];
-      leafletMapRef.current.panBy(offset as [number, number], { animate: true });
-    }
-  }
-
   function zoomMap(direction: MapZoom) {
     if (mapMode === "google" && googleMapRef.current) {
       const currentZoom = googleMapRef.current.getZoom() ?? 10;
@@ -1142,89 +1271,68 @@ export function MapViewport({
     }
   }
 
+  async function toggleAircraftLayer() {
+    if (visibleKinds.aircraft) {
+      setVisibleKinds((current) => ({
+        ...current,
+        aircraft: false
+      }));
+      return;
+    }
+
+    setVisibleKinds((current) => ({
+      ...current,
+      aircraft: true
+    }));
+    await refreshAircraft();
+  }
+
+  function toggleCameraLayer() {
+    setVisibleKinds((current) => ({
+      ...current,
+      camera: !current.camera
+    }));
+  }
+
   return (
     <div className="map-viewport">
       <div className="map-stage map-stage-live">
         <div className="map-control-dock">
-          <div className="map-control-badges">
-            <Badge tone="accent">{mapMode === "google" ? "Google Maps" : "Leaflet Optimized"}</Badge>
-            <Badge tone={showWeatherOverlay ? "accent" : "neutral"}>
-              Weather {showWeatherOverlay ? "On" : "Off"}
-            </Badge>
-            <Badge tone="neutral">{liveAircraftCount} live aircraft</Badge>
-            <Badge tone="neutral">{flightSubscriptions.length} tracked flights</Badge>
-          </div>
-
           <div className="map-control-section">
             <strong>Map controls</strong>
             <div className="map-action-group">
               <button type="button" className="map-action-button" onClick={fitRegion}>
                 Fit Region
               </button>
-              <button type="button" className="map-action-button" onClick={centerOnReno}>
-                Center Reno
-              </button>
               <button type="button" className="map-action-button" onClick={centerOnAirport}>
                 Center KRNO
               </button>
-              <button type="button" className="map-action-button" onClick={focusOnAircraft}>
-                Focus Aircraft
-              </button>
               <button
                 type="button"
-                className="map-action-button"
+                className={`map-action-button ${visibleKinds.aircraft ? "is-active" : ""}`}
                 onClick={() => {
-                  void refreshAircraft();
+                  void toggleAircraftLayer();
                 }}
                 disabled={aircraftRefreshState.status === "submitting"}
               >
-                {aircraftRefreshState.status === "submitting" ? "Refreshing..." : "Refresh Aircraft"}
+                {aircraftRefreshState.status === "submitting"
+                  ? "Loading Aircraft..."
+                  : visibleKinds.aircraft
+                    ? "Aircraft On"
+                    : "Aircraft Off"}
+              </button>
+              <button
+                type="button"
+                className={`map-action-button ${visibleKinds.camera ? "is-active" : ""}`}
+                onClick={toggleCameraLayer}
+              >
+                {visibleKinds.camera ? "Cams On" : "Cams Off"}
               </button>
               <button type="button" className="map-action-button" onClick={() => zoomMap("in")}>
                 Zoom In
               </button>
               <button type="button" className="map-action-button" onClick={() => zoomMap("out")}>
                 Zoom Out
-              </button>
-            </div>
-          </div>
-
-          <div className="map-control-section">
-            <strong>Layers</strong>
-            <div className="map-action-group">
-              <button
-                type="button"
-                className={`map-action-button ${showWeatherOverlay ? "is-active" : ""}`}
-                onClick={() => setShowWeatherOverlay((current) => !current)}
-              >
-                {showWeatherOverlay ? "Hide Weather" : "Show Weather"}
-              </button>
-              <button type="button" className="map-action-button" onClick={() => setAllKinds(true)}>
-                All Layers
-              </button>
-              <button type="button" className="map-action-button" onClick={() => setAllKinds(false)}>
-                Clear Layers
-              </button>
-            </div>
-          </div>
-
-          <div className="map-control-section">
-            <strong>Pan map</strong>
-            <div className="map-dpad" aria-label="Map navigation pad">
-              <button type="button" className="map-dpad-button map-dpad-north" onClick={() => panMap("north")}>
-                N
-              </button>
-              <button type="button" className="map-dpad-button map-dpad-west" onClick={() => panMap("west")}>
-                W
-              </button>
-              <button type="button" className="map-dpad-button map-dpad-center" onClick={centerOnAirport}>
-                RNO
-              </button>
-              <button type="button" className="map-dpad-button map-dpad-east" onClick={() => panMap("east")}>
-                E
-              </button>
-              <button type="button" className="map-dpad-button map-dpad-south" onClick={() => panMap("south")}>
-                S
               </button>
             </div>
           </div>
@@ -1246,9 +1354,7 @@ export function MapViewport({
         {visibleKinds.camera && filteredCameras.length > 0 ? (
           <div className="map-camera-prompt">
             <strong>Camera viewer</strong>
-            <div>
-              Click a camera marker to load it into the dashboard viewer for {cameraScope === "rno_airport" ? "RNO airport" : "Reno"} cameras.
-            </div>
+            <div>Click any camera marker to load that live feed into the dashboard viewer.</div>
           </div>
         ) : null}
 
@@ -1276,7 +1382,11 @@ export function MapViewport({
               <div className="camera-stage-top">
                 <div className="camera-viewer-box camera-viewer-box-primary">
                   {viewerHasEmbeddedFeed ? (
-                    <CameraMediaViewer title={viewerCamera.name} src={viewerCamera.previewUrl!} />
+                    <CameraMediaViewer
+                      key={`${viewerCamera.id}-${viewerCamera.previewUrl}`}
+                      title={viewerCamera.name}
+                      src={viewerCamera.previewUrl!}
+                    />
                   ) : (
                     <div className="camera-viewer-placeholder">
                       <div className="camera-viewer-placeholder-title">Live viewer ready</div>
@@ -1292,9 +1402,7 @@ export function MapViewport({
                     <div>
                       <div className="camera-panel-kicker">Live camera feed</div>
                       <div className="camera-viewer-name">{viewerCamera.name}</div>
-                      <small>
-                        {viewerCamera.provider} | {cameraScopeLabel}
-                      </small>
+                      <small>{viewerCamera.provider}</small>
                     </div>
                     <div className="camera-viewer-badges">
                       <Badge tone={viewerHasEmbeddedFeed ? "accent" : "neutral"}>
@@ -1309,29 +1417,10 @@ export function MapViewport({
               <div className="camera-controller-card">
                 <div className="camera-controller-head">
                   <strong>Camera controls</strong>
-                  <small>Select the feed and move the map without pushing the video lower.</small>
+                  <small>Choose any live camera here or click one directly on the map.</small>
                 </div>
 
                 <div className="camera-selector-grid">
-                  <div>
-                    <label className="camera-select-label" htmlFor="camera-scope">
-                      Camera set
-                    </label>
-                    <div className="camera-select-row">
-                      <select
-                        id="camera-scope"
-                        className="camera-select"
-                        value={cameraScope}
-                        onChange={(event) => {
-                          setCameraScope(event.target.value as CameraScope);
-                        }}
-                      >
-                        <option value="rno_airport">RNO airport perimeter</option>
-                        <option value="reno_corridor">Reno regional corridor</option>
-                      </select>
-                    </div>
-                  </div>
-
                   <div>
                     <label className="camera-select-label" htmlFor="camera-select">
                       Choose camera
@@ -1369,9 +1458,9 @@ export function MapViewport({
                   <button
                     type="button"
                     className="camera-select-button"
-                    onClick={centerOnAirport}
+                    onClick={() => focusOnPoint(viewerCamera.point, 13)}
                   >
-                    Jump to KRNO
+                    Jump to camera
                   </button>
                   <button
                     type="button"
@@ -1386,11 +1475,6 @@ export function MapViewport({
               {!hasEmbeddedCameraFeed ? (
                 <small className="camera-inline-note">
                   Live in-dashboard camera playback needs a real <code>NEVADA_511_API_KEY</code> in <code>.env.local</code> and a gateway restart.
-                </small>
-              ) : null}
-              {cameraScope === "rno_airport" ? (
-                <small className="camera-inline-note">
-                  RNO airport mode favors public Nevada 511 cameras around KRNO, including Plumb Airport and nearby airport-approach views.
                 </small>
               ) : null}
             </>
@@ -1461,28 +1545,6 @@ export function MapViewport({
               <>
                 <div>{selectedStack.title}</div>
                 <small>{formatStackMeta(selectedStack)}</small>
-              </>
-            ) : null}
-            {selectedCamera ? (
-              <>
-                <div>{selectedCamera.name}</div>
-                <small>{selectedCamera.provider} | loaded into the live camera workspace above</small>
-                <div className="selected-link-row">
-                  <button
-                    type="button"
-                    className="selected-link-button"
-                    onClick={() => viewCameraOnDashboard(selectedCamera)}
-                  >
-                    View on dashboard
-                  </button>
-                  <button
-                    type="button"
-                    className="selected-link-button selected-link-button-secondary"
-                    onClick={() => viewCameraOnDashboard(selectedCamera, { openPopup: true })}
-                  >
-                    Live popup
-                  </button>
-                </div>
               </>
             ) : null}
             {!selectedEvent && !selectedStack && !selectedCamera ? (
@@ -1561,7 +1623,7 @@ export function MapViewport({
                   <div>
                     <strong>{viewerCamera.name}</strong>
                     <div className="camera-popup-subtitle">
-                      {cameraScope === "rno_airport" ? "RNO airport perimeter live popup" : "Reno corridor live popup"}
+                      Live camera popup
                     </div>
                   </div>
                   <button
@@ -1575,7 +1637,11 @@ export function MapViewport({
 
                 <div className="camera-popup-stage">
                   {viewerCamera.embedMode === "embed" && viewerCamera.previewUrl ? (
-                    <CameraMediaViewer title={viewerCamera.name} src={viewerCamera.previewUrl} />
+                    <CameraMediaViewer
+                      key={`popup-${viewerCamera.id}-${viewerCamera.previewUrl}`}
+                      title={viewerCamera.name}
+                      src={viewerCamera.previewUrl}
+                    />
                   ) : (
                     <div className="camera-viewer-placeholder">
                       <div className="camera-viewer-placeholder-title">Live feed unavailable</div>
