@@ -26,6 +26,8 @@ type Nevada511Camera = {
 
 const CACHE_TTL_MS = 60_000;
 const CUSTOM_CAMERA_ID_PREFIX = "cam-";
+const NV511_PRIORITY_CHECKLIST_IDS = new Set<number>([5110, 4989, 4990, 5328, 5083, 5076, 5015, 80]);
+const STREAM_PROBE_TIMEOUT_MS = 4_500;
 
 let cameraCache:
   | {
@@ -44,6 +46,14 @@ function isDirectMediaUrl(url: string | null | undefined): boolean {
   }
 
   return /\.(png|jpe?g|gif|webp|mp4|webm|m3u8)(\?|$)/i.test(url);
+}
+
+function isHlsUrl(url: string | null | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+
+  return /\.m3u8(\?|$)/i.test(url);
 }
 
 function milesBetween(
@@ -141,6 +151,87 @@ function toCameraSource(camera: Nevada511Camera): CameraSource {
   };
 }
 
+async function probeUrlReachable(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), STREAM_PROBE_TIMEOUT_MS);
+
+  try {
+    const headResponse = await fetch(url, {
+      method: "HEAD",
+      signal: controller.signal
+    });
+
+    if (headResponse.ok) {
+      return true;
+    }
+
+    // Some origins reject HEAD; fallback to GET.
+    if (headResponse.status !== 405) {
+      return false;
+    }
+
+    const getResponse = await fetch(url, {
+      method: "GET",
+      signal: controller.signal
+    });
+
+    return getResponse.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function stabilizePriorityNevadaCamera(camera: CameraSource): Promise<CameraSource> {
+  if (!camera.id.startsWith("nv511-")) {
+    return camera;
+  }
+
+  const numericId = Number(camera.id.replace("nv511-", ""));
+  if (!NV511_PRIORITY_CHECKLIST_IDS.has(numericId)) {
+    return camera;
+  }
+
+  const fallbackImageUrl =
+    camera.targetUrl && camera.targetUrl.includes("/map/Cctv/") ? camera.targetUrl : null;
+
+  if (camera.previewUrl && isHlsUrl(camera.previewUrl)) {
+    const streamHealthy = await probeUrlReachable(camera.previewUrl);
+    if (streamHealthy) {
+      return camera;
+    }
+  } else if (camera.previewUrl) {
+    const previewHealthy = await probeUrlReachable(camera.previewUrl);
+    if (previewHealthy) {
+      return camera;
+    }
+  }
+
+  if (fallbackImageUrl) {
+    const fallbackHealthy = await probeUrlReachable(fallbackImageUrl);
+    if (!fallbackHealthy) {
+      return {
+        ...camera,
+        embedMode: "link_only",
+        previewUrl: null
+      };
+    }
+
+    return {
+      ...camera,
+      embedMode: "embed",
+      previewUrl: fallbackImageUrl
+    };
+  }
+
+  return {
+    ...camera,
+    embedMode: "link_only",
+    previewUrl: null
+  };
+}
+
 export async function loadCameraSources(): Promise<CameraSource[]> {
   if (cameraCache && cameraCache.expiresAt > Date.now()) {
     return cameraCache.data;
@@ -148,7 +239,10 @@ export async function loadCameraSources(): Promise<CameraSource[]> {
 
   const apiKey = process.env.NEVADA_511_API_KEY;
 
-  const customCameras = fallbackCameras.filter((camera) => camera.id.startsWith(CUSTOM_CAMERA_ID_PREFIX));
+  const customCameras = fallbackCameras.filter(
+    (camera) =>
+      camera.id.startsWith(CUSTOM_CAMERA_ID_PREFIX) && camera.provider !== "Nevada 511"
+  );
   const fallbackNevadaCameras = fallbackCameras.filter(
     (camera) => !camera.id.startsWith(CUSTOM_CAMERA_ID_PREFIX)
   );
@@ -186,7 +280,10 @@ export async function loadCameraSources(): Promise<CameraSource[]> {
     });
 
     const mergedCameras = dedupedCameras.size > 0 ? Array.from(dedupedCameras.values()) : fallbackNevadaCameras;
-    const data = [...customCameras, ...mergedCameras];
+    const stabilizedNevadaCameras = await Promise.all(
+      mergedCameras.map((camera) => stabilizePriorityNevadaCamera(camera))
+    );
+    const data = [...customCameras, ...stabilizedNevadaCameras];
 
     cameraCache = {
       expiresAt: Date.now() + CACHE_TTL_MS,

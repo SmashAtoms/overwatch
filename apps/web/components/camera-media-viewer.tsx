@@ -12,7 +12,7 @@ const NWS_RENO_WEATHER_CAM_REFRESH_MS = 120_000;
 const SKYLINE_VIRGINIA_REFRESH_MS = 3_000;
 
 function isImage(src: string): boolean {
-  return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src);
+  return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src) || /nvroads\.com\/map\/Cctv\/\d+/i.test(src);
 }
 
 function isHls(src: string): boolean {

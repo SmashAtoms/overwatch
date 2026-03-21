@@ -87,6 +87,16 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 const FILTERABLE_SOURCE_KINDS: SourceKind[] = ["aircraft", "atc", "scanner", "camera"];
 const AIRCRAFT_REFRESH_INTERVAL_MS = 15_000;
 const DEFAULT_CAMERA_ID = "nv511-4986";
+const NEVADA_511_CHECKLIST_TARGETS: Array<{ label: string; matchers: string[] }> = [
+  { label: "Nevada 511 US-395 @ S Virginia", matchers: ["US-395 @ S Virginia", "I-580 @ S Virginia/Patriot"] },
+  { label: "Nevada 511 I-580 @ Mill St", matchers: ["I-580 @ Mill St", "I580 @ Mill St"] },
+  { label: "Nevada 511 I-580 @ Villanova On Ramp", matchers: ["I-580 @ Villanova On Ramp", "I580 @ Villanova On Ramp"] },
+  { label: "I-80 WB Exit 1 GoldRanch", matchers: ["I-80 WB Exit 1 GoldRanch", "I80 WB Exit 1 GoldRanch"] },
+  { label: "US-395 @ Bordertown", matchers: ["US-395 @ Bordertown", "US395 @ Bordertown"] },
+  { label: "US-395 @ Panther Valley", matchers: ["US-395 @ Panther Valley", "US395 @ Panther Valley"] },
+  { label: "I-80 @ Mogul Exit 7", matchers: ["I-80 @ Mogul Exit 7", "I80 @ Mogul Exit 7"] },
+  { label: "West 4th St @ Woodland Roundabout", matchers: ["West 4th St @ Woodland Roundabout"] }
+];
 
 declare global {
   interface Window {
@@ -173,6 +183,10 @@ function formatEventMeta(item: SignalEvent): string {
 
 function formatStackMeta(item: InformationStack): string {
   return `${item.sources.join(", ")} | ${Math.round(item.confidence * 100)}% confidence`;
+}
+
+function normalizeCompare(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function createRegionBounds(region: RegionConfig): [[number, number], [number, number]] {
@@ -414,6 +428,34 @@ export function MapViewport({
     () => (visibleKinds.camera ? scopedCameras : []),
     [scopedCameras, visibleKinds.camera]
   );
+  const nevada511Checklist = useMemo(() => {
+    const nevadaCameras = scopedCameras.filter((camera) => camera.id.startsWith("nv511-"));
+
+    return NEVADA_511_CHECKLIST_TARGETS.map((target) => {
+      const normalizedMatchers = target.matchers.map((matcher) => normalizeCompare(matcher));
+      const matchedCamera =
+        nevadaCameras.find((camera) =>
+          normalizedMatchers.some((matcher) => normalizeCompare(camera.name) === matcher)
+        ) ??
+        nevadaCameras.find((camera) =>
+          normalizedMatchers.some((matcher) => normalizeCompare(camera.name).includes(matcher))
+        ) ??
+        nevadaCameras.find((camera) =>
+          normalizedMatchers.some((matcher) => matcher.includes(normalizeCompare(camera.name)))
+        ) ??
+        null;
+
+      return {
+        targetName: target.label,
+        camera: matchedCamera,
+        status: matchedCamera
+          ? matchedCamera.embedMode === "embed" && matchedCamera.previewUrl
+            ? "live"
+            : "link_only"
+          : "missing"
+      } as const;
+    });
+  }, [scopedCameras]);
   const filteredStacks = useMemo(
     () => stacks.filter((stack) => stack.sources.some((source) => isSourceVisible(source))),
     [showWeatherOverlay, stacks, visibleKinds]
@@ -1528,6 +1570,40 @@ export function MapViewport({
                   >
                     Open live popup
                   </button>
+                </div>
+              </div>
+
+              <div className="camera-controller-card">
+                <div className="camera-controller-head">
+                  <strong>Nevada 511 checklist</strong>
+                  <small>Priority camera list with live/link status and quick focus.</small>
+                </div>
+                <div className="camera-checklist">
+                  {nevada511Checklist.map((item) => (
+                    <div key={item.targetName} className="camera-checklist-item">
+                      <div className="camera-checklist-copy">
+                        <span>{item.targetName}</span>
+                        <small>
+                          {item.status === "live"
+                            ? "Live"
+                            : item.status === "link_only"
+                              ? "Link only"
+                              : "Not found in current feed"}
+                        </small>
+                      </div>
+                      {item.camera ? (
+                        <button
+                          type="button"
+                          className="camera-select-button"
+                          onClick={() => viewCameraOnDashboard(item.camera)}
+                        >
+                          Open
+                        </button>
+                      ) : (
+                        <Badge tone="danger">Missing</Badge>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 

@@ -1063,6 +1063,32 @@ a {
   margin-top: 0.75rem;
 }
 
+.camera-checklist {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.camera-checklist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.camera-checklist-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.camera-checklist-copy small {
+  color: var(--muted);
+}
+
 .camera-select {
   flex: 1;
   min-width: 0;
