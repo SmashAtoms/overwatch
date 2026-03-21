@@ -33,6 +33,7 @@ const app = Fastify({
 });
 
 const SKYLINE_SOURCE_PATTERN = /source:'([^']*m3u8\?a=[^']+)'/i;
+const HDONTAP_PLAYER_DATA_PATTERN = /<script id="player-data" type="application\/json">([\s\S]*?)<\/script>/i;
 const SKYLINE_FALLBACK_TOKENS: Record<string, string> = {
   "virginia-city/virginia-city.html": "92b5pqmocg4gevq3oligb9ca23"
 };
@@ -65,6 +66,33 @@ async function resolveSkylineStreamSource(pageUrl: string): Promise<string | nul
   }
 
   return `https://hd-auth.skylinewebcams.com/live.m3u8?a=${encodeURIComponent(token)}`;
+}
+
+async function resolveHdontapStreamSource(pageUrl: string): Promise<string | null> {
+  const response = await fetch(pageUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`HDOnTap page request failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  const match = html.match(HDONTAP_PLAYER_DATA_PATTERN);
+  const playerDataJson = match?.[1] ?? null;
+
+  if (!playerDataJson) {
+    return null;
+  }
+
+  try {
+    const playerData = JSON.parse(playerDataJson) as { streamSrc?: unknown };
+    return typeof playerData.streamSrc === "string" ? playerData.streamSrc : null;
+  } catch {
+    return null;
+  }
 }
 
 await app.register(cors, {
@@ -151,7 +179,7 @@ app.get("/api/v1/cameras", async (request) => {
   const requestProtocol = request.protocol ?? "http";
 
   return cameras.map((camera) => {
-    if (camera.provider !== "SkylineWebcams") {
+    if (camera.provider !== "SkylineWebcams" && camera.provider !== "HDOnTap") {
       return camera;
     }
 
@@ -166,22 +194,29 @@ app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
   const cameras = await loadCameraSources();
   const camera = cameras.find((entry) => entry.id === cameraId);
 
-  if (!camera?.targetUrl || camera.provider !== "SkylineWebcams") {
+  if (
+    !camera?.targetUrl ||
+    (camera.provider !== "SkylineWebcams" && camera.provider !== "HDOnTap")
+  ) {
     reply.code(404);
     return { error: "Camera stream not found." };
   }
 
   try {
-    const streamUrl = await resolveSkylineStreamSource(camera.targetUrl);
+    const streamUrl =
+      camera.provider === "SkylineWebcams"
+        ? await resolveSkylineStreamSource(camera.targetUrl)
+        : await resolveHdontapStreamSource(camera.targetUrl);
+
     if (!streamUrl) {
       reply.code(404);
       return { error: "Live stream source unavailable." };
     }
     return reply.redirect(streamUrl);
   } catch (error) {
-    request.log.warn({ error, cameraId }, "failed to resolve skyline stream");
+    request.log.warn({ error, cameraId }, "failed to resolve camera stream");
     reply.code(502);
-    return { error: "Unable to resolve Skyline live stream." };
+    return { error: "Unable to resolve live stream." };
   }
 });
 app.get("/api/v1/cameras/:cameraId/media", async (request, reply) => {

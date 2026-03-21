@@ -320,6 +320,16 @@ export const cameras: CameraSource[] = [
     status: "active"
   },
   {
+    id: "cam-sparks-water-bar-hdontap",
+    name: "Sparks Water Bar",
+    provider: "HDOnTap",
+    point: { lon: -119.727747, lat: 39.535305 },
+    embedMode: "embed",
+    targetUrl: "https://hdontap.com/stream/279332/sparks-water-bar-live-webcam/",
+    previewUrl: "https://hdontap.com/stream/279332/sparks-water-bar-live-webcam/embed/",
+    status: "active"
+  },
+  {
     id: "cam-ndot-plumb-airport",
     name: "Nevada 511 I-580 @ Plumb Airport",
     provider: "Nevada 511",
