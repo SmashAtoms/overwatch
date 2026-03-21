@@ -4,6 +4,7 @@ import websocket from "@fastify/websocket";
 import { Type } from "@sinclair/typebox";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { DEFAULT_REGION } from "@signalstack/contracts";
 import { createMockLiveEvent, filterEventsByQuery, sanitizeLayerStatuses } from "@signalstack/policy";
 import { adapterHealth, events, replay, stacks } from "./data.js";
@@ -34,11 +35,138 @@ const app = Fastify({
 
 const SKYLINE_SOURCE_PATTERN = /source:'([^']*m3u8\?a=[^']+)'/i;
 const HDONTAP_PLAYER_DATA_PATTERN = /<script id="player-data" type="application\/json">([\s\S]*?)<\/script>/i;
+const SKYLINE_NETWORK_M3U8_PATTERN = /https:\/\/hd-auth\.skylinewebcams\.com\/live\.m3u8\?a=[^"'&\s]+/i;
 const SKYLINE_FALLBACK_TOKENS: Record<string, string> = {
   "virginia-city/virginia-city.html": "92b5pqmocg4gevq3oligb9ca23"
 };
+const SKYLINE_STREAM_CACHE_TTL_MS = 120_000;
+const SKYLINE_BROWSER_TIMEOUT_MS = 20_000;
+const SKYLINE_EDGE_PATHS = [
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+];
 
-async function resolveSkylineStreamSource(pageUrl: string): Promise<string | null> {
+const skylineStreamCache = new Map<
+  string,
+  {
+    streamUrl: string;
+    resolvedAt: number;
+  }
+>();
+
+const skylineManualStreamCache = new Map<
+  string,
+  {
+    streamUrl: string;
+    resolvedAt: number;
+  }
+>();
+
+function getEdgeExecutablePath(): string | null {
+  const candidate = SKYLINE_EDGE_PATHS.find((path) => existsSync(path));
+  return candidate ?? null;
+}
+
+function isLivePlaylistContent(playlist: string): boolean {
+  return /#EXTINF|\.ts|\.m4s/i.test(playlist);
+}
+
+async function validateSkylineStreamUrl(streamUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(streamUrl, {
+      headers: {
+        "user-agent": "SmashAtoms-Overwatch/1.0",
+        origin: "https://www.skylinewebcams.com",
+        referer: "https://www.skylinewebcams.com/"
+      }
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const raw = Buffer.from(await response.arrayBuffer());
+    const playlist = raw.toString("utf8");
+    return isLivePlaylistContent(playlist);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveSkylineStreamSourceViaBrowser(pageUrl: string): Promise<string | null> {
+  const edgeExecutablePath = getEdgeExecutablePath();
+  if (!edgeExecutablePath) {
+    return null;
+  }
+
+  const playwright = await import("playwright-core");
+  const browser = await playwright.chromium.launch({
+    executablePath: edgeExecutablePath,
+    headless: true,
+    args: ["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+      viewport: { width: 1366, height: 768 },
+      locale: "en-US"
+    });
+
+    const page = await context.newPage();
+    let capturedStreamUrl: string | null = null;
+
+    page.on("request", (request) => {
+      const url = request.url();
+      if (SKYLINE_NETWORK_M3U8_PATTERN.test(url)) {
+        capturedStreamUrl = url;
+      }
+    });
+
+    page.on("response", (response) => {
+      const url = response.url();
+      if (SKYLINE_NETWORK_M3U8_PATTERN.test(url)) {
+        capturedStreamUrl = url;
+      }
+    });
+
+    await page.goto(pageUrl, {
+      waitUntil: "networkidle",
+      timeout: SKYLINE_BROWSER_TIMEOUT_MS
+    });
+
+    if (!capturedStreamUrl) {
+      await page.waitForTimeout(4_000);
+    }
+
+    return capturedStreamUrl;
+  } catch {
+    return null;
+  } finally {
+    await browser.close();
+  }
+}
+
+async function resolveSkylineStreamSource(pageUrl: string, cameraId?: string): Promise<string | null> {
+  if (cameraId) {
+    const manual = skylineManualStreamCache.get(cameraId);
+    if (manual && Date.now() - manual.resolvedAt < SKYLINE_STREAM_CACHE_TTL_MS) {
+      const manualIsLive = await validateSkylineStreamUrl(manual.streamUrl);
+      if (manualIsLive) {
+        return manual.streamUrl;
+      }
+    }
+  }
+
+  const cached = skylineStreamCache.get(pageUrl);
+  if (cached && Date.now() - cached.resolvedAt < SKYLINE_STREAM_CACHE_TTL_MS) {
+    const cachedIsLive = await validateSkylineStreamUrl(cached.streamUrl);
+    if (cachedIsLive) {
+      return cached.streamUrl;
+    }
+  }
+
   const response = await fetch(pageUrl, {
     headers: {
       "user-agent": "SmashAtoms-Overwatch/1.0"
@@ -53,6 +181,32 @@ async function resolveSkylineStreamSource(pageUrl: string): Promise<string | nul
   const match = html.match(SKYLINE_SOURCE_PATTERN);
   const matchedSource = match?.[1] ?? null;
   let token = matchedSource ? new URL(matchedSource, pageUrl).searchParams.get("a") : null;
+  let streamUrl = token
+    ? `https://hd-auth.skylinewebcams.com/live.m3u8?a=${encodeURIComponent(token)}`
+    : null;
+
+  if (streamUrl) {
+    const streamIsLive = await validateSkylineStreamUrl(streamUrl);
+    if (streamIsLive) {
+      skylineStreamCache.set(pageUrl, {
+        streamUrl,
+        resolvedAt: Date.now()
+      });
+      return streamUrl;
+    }
+  }
+
+  const browserResolved = await resolveSkylineStreamSourceViaBrowser(pageUrl);
+  if (browserResolved) {
+    const browserResolvedIsLive = await validateSkylineStreamUrl(browserResolved);
+    if (browserResolvedIsLive) {
+      skylineStreamCache.set(pageUrl, {
+        streamUrl: browserResolved,
+        resolvedAt: Date.now()
+      });
+      return browserResolved;
+    }
+  }
 
   if (!token) {
     const fallbackEntry = Object.entries(SKYLINE_FALLBACK_TOKENS).find(([pageFragment]) =>
@@ -65,7 +219,17 @@ async function resolveSkylineStreamSource(pageUrl: string): Promise<string | nul
     return null;
   }
 
-  return `https://hd-auth.skylinewebcams.com/live.m3u8?a=${encodeURIComponent(token)}`;
+  streamUrl = `https://hd-auth.skylinewebcams.com/live.m3u8?a=${encodeURIComponent(token)}`;
+  const fallbackIsLive = await validateSkylineStreamUrl(streamUrl);
+  if (!fallbackIsLive) {
+    return null;
+  }
+
+  skylineStreamCache.set(pageUrl, {
+    streamUrl,
+    resolvedAt: Date.now()
+  });
+  return streamUrl;
 }
 
 async function resolveHdontapStreamSource(pageUrl: string): Promise<string | null> {
@@ -179,6 +343,15 @@ app.get("/api/v1/cameras", async (request) => {
   const requestProtocol = request.protocol ?? "http";
 
   return cameras.map((camera) => {
+    const isSkylineEmbedPlayer =
+      camera.provider === "SkylineWebcams" &&
+      typeof camera.previewUrl === "string" &&
+      camera.previewUrl.includes("embed.skylinewebcams.com/player/");
+
+    if (isSkylineEmbedPlayer) {
+      return camera;
+    }
+
     if (camera.provider !== "SkylineWebcams" && camera.provider !== "HDOnTap") {
       return camera;
     }
@@ -205,7 +378,7 @@ app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
   try {
     const streamUrl =
       camera.provider === "SkylineWebcams"
-        ? await resolveSkylineStreamSource(camera.targetUrl)
+        ? await resolveSkylineStreamSource(camera.targetUrl, cameraId)
         : await resolveHdontapStreamSource(camera.targetUrl);
 
     if (!streamUrl) {
@@ -219,6 +392,52 @@ app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
     return { error: "Unable to resolve live stream." };
   }
 });
+app.post(
+  "/api/v1/cameras/:cameraId/stream-token",
+  {
+    schema: {
+      params: Type.Object({
+        cameraId: Type.String({ minLength: 1 })
+      }),
+      body: Type.Object({
+        streamUrl: Type.String({ minLength: 1 })
+      })
+    }
+  },
+  async (request, reply) => {
+    const { cameraId } = request.params as { cameraId: string };
+    const { streamUrl } = request.body as { streamUrl: string };
+    const cameras = await loadCameraSources();
+    const camera = cameras.find((entry) => entry.id === cameraId);
+
+    if (!camera || camera.provider !== "SkylineWebcams") {
+      reply.code(404);
+      return { ok: false, error: "Skyline camera not found." };
+    }
+
+    if (!SKYLINE_NETWORK_M3U8_PATTERN.test(streamUrl)) {
+      reply.code(400);
+      return { ok: false, error: "Invalid Skyline stream URL format." };
+    }
+
+    const isValid = await validateSkylineStreamUrl(streamUrl);
+    if (!isValid) {
+      reply.code(400);
+      return { ok: false, error: "Provided Skyline stream URL is not currently live." };
+    }
+
+    skylineManualStreamCache.set(cameraId, {
+      streamUrl,
+      resolvedAt: Date.now()
+    });
+
+    return {
+      ok: true,
+      cameraId,
+      cachedUntil: new Date(Date.now() + SKYLINE_STREAM_CACHE_TTL_MS).toISOString()
+    };
+  }
+);
 app.get("/api/v1/cameras/:cameraId/media", async (request, reply) => {
   const { cameraId } = request.params as { cameraId: string };
   const cameras = await loadCameraSources();

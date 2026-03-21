@@ -9,6 +9,7 @@ type CameraMediaViewerProps = {
 
 const DEFAULT_IMAGE_REFRESH_MS = 30_000;
 const NWS_RENO_WEATHER_CAM_REFRESH_MS = 120_000;
+const SKYLINE_VIRGINIA_REFRESH_MS = 3_000;
 
 function isImage(src: string): boolean {
   return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src);
@@ -27,6 +28,10 @@ function isYouTubeEmbed(src: string): boolean {
 }
 
 function getImageRefreshInterval(src: string): number {
+  if (/embed\.skylinewebcams\.com\/img\/1130\.jpg/i.test(src)) {
+    return SKYLINE_VIRGINIA_REFRESH_MS;
+  }
+
   if (/weather\.gov\/images\/rev\/webcamWCAQ\/latestHiRes\.jpg/i.test(src)) {
     return NWS_RENO_WEATHER_CAM_REFRESH_MS;
   }
@@ -38,29 +43,33 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [imageTick, setImageTick] = useState(0);
+  const [fallbackSrc, setFallbackSrc] = useState<string | null>(null);
+  const isVirginiaSkylineStream = /cam-virginia-city-skyline\/stream\.m3u8/i.test(src);
+  const effectiveSrc = fallbackSrc ?? src;
 
   useEffect(() => {
     setStatus("idle");
+    setFallbackSrc(null);
   }, [src]);
 
   useEffect(() => {
-    if (!isImage(src)) {
+    if (!isImage(effectiveSrc)) {
       return;
     }
 
     setImageTick(0);
     const intervalId = window.setInterval(() => {
       setImageTick((current) => current + 1);
-    }, getImageRefreshInterval(src));
+    }, getImageRefreshInterval(effectiveSrc));
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [src]);
+  }, [effectiveSrc]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || (!isHls(src) && !isDirectVideo(src))) {
+    if (!video || (!isHls(effectiveSrc) && !isDirectVideo(effectiveSrc))) {
       return;
     }
 
@@ -83,14 +92,14 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
 
       setStatus("loading");
 
-      if (isDirectVideo(src)) {
-        currentVideo.src = src;
+      if (isDirectVideo(effectiveSrc)) {
+        currentVideo.src = effectiveSrc;
         void tryPlay(currentVideo);
         return;
       }
 
       if (currentVideo.canPlayType("application/vnd.apple.mpegurl")) {
-        currentVideo.src = src;
+        currentVideo.src = effectiveSrc;
         void tryPlay(currentVideo);
         return;
       }
@@ -108,7 +117,7 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
           lowLatencyMode: true
         });
 
-        hls.loadSource(src);
+        hls.loadSource(effectiveSrc);
         hls.attachMedia(currentVideo);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (!cancelled) {
@@ -118,6 +127,9 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         });
         hls.on(Hls.Events.ERROR, () => {
           if (!cancelled) {
+            if (isVirginiaSkylineStream) {
+              setFallbackSrc("https://embed.skylinewebcams.com/img/1130.jpg");
+            }
             setStatus("error");
           }
         });
@@ -125,6 +137,9 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         hlsInstance = hls;
       } catch {
         if (!cancelled) {
+          if (isVirginiaSkylineStream) {
+            setFallbackSrc("https://embed.skylinewebcams.com/img/1130.jpg");
+          }
           setStatus("error");
         }
       }
@@ -137,7 +152,12 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         void tryPlay(currentVideo);
       }
     };
-    const handleError = () => setStatus("error");
+    const handleError = () => {
+      if (isVirginiaSkylineStream) {
+        setFallbackSrc("https://embed.skylinewebcams.com/img/1130.jpg");
+      }
+      setStatus("error");
+    };
 
     video.pause();
     video.removeAttribute("src");
@@ -158,14 +178,14 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
         hlsInstance.destroy();
       }
     };
-  }, [src]);
+  }, [effectiveSrc, isVirginiaSkylineStream]);
 
-  if (isImage(src)) {
-    const imageSrc = `${src}${src.includes("?") ? "&" : "?"}t=${imageTick}`;
+  if (isImage(effectiveSrc)) {
+    const imageSrc = `${effectiveSrc}${effectiveSrc.includes("?") ? "&" : "?"}t=${imageTick}`;
     return <img className="camera-viewer-media" src={imageSrc} alt={title} />;
   }
 
-  if (isHls(src) || isDirectVideo(src)) {
+  if (isHls(effectiveSrc) || isDirectVideo(effectiveSrc)) {
     return (
       <div className="camera-video-shell">
         <video
@@ -187,12 +207,12 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   return (
     <iframe
       className="camera-viewer-media"
-      src={src}
+      src={effectiveSrc}
       title={title}
       loading="lazy"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
       allowFullScreen
-      referrerPolicy={isYouTubeEmbed(src) ? "strict-origin-when-cross-origin" : "no-referrer"}
+      referrerPolicy={isYouTubeEmbed(effectiveSrc) ? "strict-origin-when-cross-origin" : "origin-when-cross-origin"}
     />
   );
 }

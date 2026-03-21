@@ -330,6 +330,83 @@ export const cameras: CameraSource[] = [
     status: "active"
   },
   {
+    id: "cam-youtube-i8jnfsoopjg",
+    name: "Reno Union Pacific",
+    provider: "YouTube Live",
+    point: { lon: -119.8138, lat: 39.5296 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=i8jNfsoOpJg",
+    previewUrl:
+      "https://www.youtube.com/embed/i8jNfsoOpJg?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
+    id: "cam-news4-greater-nevada-field",
+    name: "Greater Nevada Field - Bradley Drendel & Jeanney",
+    provider: "MyNews4 SkyCam",
+    point: { lon: -119.8057, lat: 39.5274 },
+    embedMode: "embed",
+    targetUrl: "https://mynews4.com/weather/skycam",
+    previewUrl:
+      "https://sinclairstoryline.com/resources/video/players/prod/src/scripts/v1/dist/embed.html?file=https%3A%2F%2Fd237lhmlzpreh2.cloudfront.net%2FNSN%2FNevfield%2Fm3u8%2FNSN-Nevfield_live.m3u8%3Fresize%3Dtrue&autostart=true&sync=false&advertising=false",
+    status: "active"
+  },
+  {
+    id: "cam-news4-legends-bay-casino",
+    name: "Legends Bay Casino",
+    provider: "MyNews4 SkyCam",
+    point: { lon: -119.7195, lat: 39.5289 },
+    embedMode: "embed",
+    targetUrl: "https://mynews4.com/weather/skycam",
+    previewUrl:
+      "https://sinclairstoryline.com/resources/video/players/prod/src/scripts/v1/dist/embed.html?file=https%3A%2F%2Fd237lhmlzpreh2.cloudfront.net%2FNSN%2FBayCasino%2Fm3u8%2FNSN-BayCasino_live.m3u8%3Fresize%3Dtrue&autostart=true&sync=false&advertising=false",
+    status: "active"
+  },
+  {
+    id: "cam-news4-fox11-skycam",
+    name: "News4/Fox11 Skycam",
+    provider: "MyNews4 SkyCam",
+    point: { lon: -119.8138, lat: 39.5296 },
+    embedMode: "embed",
+    targetUrl: "https://mynews4.com/weather/skycam",
+    previewUrl:
+      "https://sinclairstoryline.com/resources/video/players/prod/src/scripts/v1/dist/embed.html?file=https%3A%2F%2Fd237lhmlzpreh2.cloudfront.net%2FNSN%2FInternetAuto%2Fm3u8%2FNSN-InternetAuto_live.m3u8%3Fresize%3Dtrue&autostart=true&sync=false&advertising=false",
+    status: "active"
+  },
+  {
+    id: "cam-news4-porsche-reno",
+    name: "Porsche Reno Skycam",
+    provider: "MyNews4 SkyCam",
+    point: { lon: -119.7786, lat: 39.5164 },
+    embedMode: "embed",
+    targetUrl: "https://mynews4.com/weather/skycam",
+    previewUrl:
+      "https://sinclairstoryline.com/resources/video/players/prod/src/scripts/v1/dist/embed.html?file=https%3A%2F%2Fd237lhmlzpreh2.cloudfront.net%2FNSN%2FPorscheReno%2Fm3u8%2FNSN-PorscheReno_live.m3u8%3Fresize%3Dtrue&autostart=true&sync=false&advertising=false",
+    status: "active"
+  },
+  {
+    id: "cam-news4-university-nevada-skycam",
+    name: "University of Nevada Skycam",
+    provider: "MyNews4 SkyCam",
+    point: { lon: -119.8154, lat: 39.5454 },
+    embedMode: "embed",
+    targetUrl: "https://mynews4.com/weather/skycam",
+    previewUrl:
+      "https://sinclairstoryline.com/resources/video/players/prod/src/scripts/v1/dist/embed.html?file=https%3A%2F%2Fd237lhmlzpreh2.cloudfront.net%2FNSN%2FUNSkycam%2Fm3u8%2FNSN-UNSkycam_live.m3u8%3Fresize%3Dtrue&autostart=true&sync=false&advertising=false",
+    status: "active"
+  },
+  {
+    id: "cam-youtube-rsd2aav6w8",
+    name: "Reno Live YouTube Cam",
+    provider: "YouTube Live",
+    point: { lon: -119.8138, lat: 39.5296 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/live/RSd2aaV-6w8?si=5V-4yopUvnXePnkW",
+    previewUrl:
+      "https://www.youtube.com/embed/RSd2aaV-6w8?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
     id: "cam-ndot-plumb-airport",
     name: "Nevada 511 I-580 @ Plumb Airport",
     provider: "Nevada 511",
@@ -407,6 +484,16 @@ export const cameras: CameraSource[] = [
     embedMode: "link_only",
     targetUrl: "https://www.nvroads.com/region/Reno",
     previewUrl: null,
+    status: "active"
+  },
+  {
+    id: "cam-carson-city-airport-spotcameras",
+    name: "Carson City Airport",
+    provider: "Brownrice",
+    point: { lon: -119.7346, lat: 39.1929 },
+    embedMode: "embed",
+    targetUrl: "https://weathercams.faa.gov/map/-119.95162,39.02213,-119.07272,39.35847/station/KCXP/details/camera/13049/loop",
+    previewUrl: "https://live3.brownrice.com:444/mountainwestcxp/mountainwestcxp.stream/main_playlist.m3u8",
     status: "active"
   }
 ];
