@@ -515,6 +515,56 @@ export const cameras: CameraSource[] = [
     targetUrl: "https://weathercams.faa.gov/map/-119.95162,39.02213,-119.07272,39.35847/station/KCXP/details/camera/13049/loop",
     previewUrl: "https://live3.brownrice.com:444/mountainwestcxp/mountainwestcxp.stream/main_playlist.m3u8",
     status: "active"
+  },
+  {
+    id: "cam-mt-rose-main-lodge",
+    name: "Mt. Rose Main Lodge Cam",
+    provider: "Brownrice",
+    point: { lon: -119.8838, lat: 39.3269 },
+    embedMode: "embed",
+    targetUrl: "https://skirose.com/the-mountain-web-cams/",
+    previewUrl: "https://live5.brownrice.com:444/mtrosecam/mtrosecam.stream/main_playlist.m3u8",
+    status: "active"
+  },
+  {
+    id: "cam-mt-rose-summit-cam",
+    name: "Mt. Rose Summit Cam",
+    provider: "Brownrice",
+    point: { lon: -119.8868, lat: 39.3362 },
+    embedMode: "embed",
+    targetUrl: "https://skirose.com/the-mountain-web-cams/",
+    previewUrl: "https://live6.brownrice.com:444/mtrose1/mtrose1.stream/main_playlist.m3u8",
+    status: "active"
+  },
+  {
+    id: "cam-mt-rose-summit-view",
+    name: "Mt. Rose Summit View",
+    provider: "Brownrice",
+    point: { lon: -119.8852, lat: 39.3349 },
+    embedMode: "embed",
+    targetUrl: "https://skirose.com/the-mountain-web-cams/",
+    previewUrl: "https://streamer4.brownrice.com/mtrosesummit/mtrosesummit.stream/main_playlist.m3u8",
+    status: "active"
+  },
+  {
+    id: "cam-mt-rose-slide-bowl",
+    name: "Mt. Rose Slide Bowl",
+    provider: "Brownrice",
+    point: { lon: -119.8796, lat: 39.3218 },
+    embedMode: "embed",
+    targetUrl: "https://skirose.com/the-mountain-web-cams/",
+    previewUrl: "https://streamer5.brownrice.com/mtroseslidebowl/mtroseslidebowl.stream/main_playlist.m3u8",
+    status: "active"
+  },
+  {
+    id: "cam-mt-rose-winters-creek-lodge",
+    name: "Mt. Rose Winters Creek Lodge",
+    provider: "Brownrice",
+    point: { lon: -119.8861, lat: 39.3158 },
+    embedMode: "embed",
+    targetUrl: "https://skirose.com/the-mountain-web-cams/",
+    previewUrl: "https://live5.brownrice.com:444/mtrosewcl/mtrosewcl.stream/main_playlist.m3u8",
+    status: "active"
   }
 ];
 

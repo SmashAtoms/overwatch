@@ -352,13 +352,24 @@ app.get("/api/v1/cameras", async (request) => {
       return camera;
     }
 
-    if (camera.provider !== "SkylineWebcams" && camera.provider !== "HDOnTap") {
+    const isBrownriceSnapshot =
+      camera.provider === "Brownrice" &&
+      typeof camera.previewUrl === "string" &&
+      /player\.brownrice\.com\/snapshot\//i.test(camera.previewUrl);
+
+    if (
+      camera.provider !== "SkylineWebcams" &&
+      camera.provider !== "HDOnTap" &&
+      !isBrownriceSnapshot
+    ) {
       return camera;
     }
 
     return {
       ...camera,
-      previewUrl: `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/stream.m3u8`
+      previewUrl: isBrownriceSnapshot
+        ? `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/media`
+        : `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/stream.m3u8`
     };
   });
 });
@@ -448,16 +459,24 @@ app.get("/api/v1/cameras/:cameraId/media", async (request, reply) => {
     return { error: "Camera media not found." };
   }
 
-  const isImageFeed = /\.(png|jpe?g|gif|webp)(\?|$)/i.test(camera.previewUrl);
+  const isImageFeed =
+    /\.(png|jpe?g|gif|webp)(\?|$)/i.test(camera.previewUrl) ||
+    /player\.brownrice\.com\/snapshot\//i.test(camera.previewUrl);
   if (!isImageFeed) {
     reply.code(400);
     return { error: "Camera media proxy only supports image feeds." };
   }
 
   const upstreamResponse = await fetch(camera.previewUrl, {
-    headers: {
-      "user-agent": "SmashAtoms-Overwatch/1.0"
-    }
+    headers:
+      camera.provider === "Brownrice"
+        ? {
+            "user-agent": "SmashAtoms-Overwatch/1.0",
+            referer: "https://skirose.com/the-mountain-web-cams/"
+          }
+        : {
+            "user-agent": "SmashAtoms-Overwatch/1.0"
+          }
   });
 
   if (!upstreamResponse.ok) {

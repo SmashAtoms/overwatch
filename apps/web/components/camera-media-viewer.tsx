@@ -10,9 +10,15 @@ type CameraMediaViewerProps = {
 const DEFAULT_IMAGE_REFRESH_MS = 30_000;
 const NWS_RENO_WEATHER_CAM_REFRESH_MS = 120_000;
 const SKYLINE_VIRGINIA_REFRESH_MS = 3_000;
+const BROWNRICE_SNAPSHOT_REFRESH_MS = 5_000;
 
 function isImage(src: string): boolean {
-  return /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src) || /nvroads\.com\/map\/Cctv\/\d+/i.test(src);
+  return (
+    /\.(png|jpe?g|gif|webp)(\?|$)/i.test(src) ||
+    /nvroads\.com\/map\/Cctv\/\d+/i.test(src) ||
+    /player\.brownrice\.com\/snapshot\//i.test(src) ||
+    /\/api\/v1\/cameras\/[^/]+\/media(\?|$)/i.test(src)
+  );
 }
 
 function isHls(src: string): boolean {
@@ -27,7 +33,23 @@ function isYouTubeEmbed(src: string): boolean {
   return /youtube\.com\/embed|youtube-nocookie\.com\/embed/i.test(src);
 }
 
+function normalizeCameraSrc(src: string): string {
+  const brownriceEmbedMatch = src.match(/player\.brownrice\.com\/embed\/([^/?#]+)/i);
+  if (brownriceEmbedMatch?.[1]) {
+    return `https://player.brownrice.com/snapshot/${brownriceEmbedMatch[1]}`;
+  }
+
+  return src;
+}
+
 function getImageRefreshInterval(src: string): number {
+  if (
+    /player\.brownrice\.com\/snapshot\//i.test(src) ||
+    /\/api\/v1\/cameras\/cam-mt-rose-main-lodge\/media(\?|$)/i.test(src)
+  ) {
+    return BROWNRICE_SNAPSHOT_REFRESH_MS;
+  }
+
   if (/embed\.skylinewebcams\.com\/img\/1130\.jpg/i.test(src)) {
     return SKYLINE_VIRGINIA_REFRESH_MS;
   }
@@ -45,12 +67,13 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
   const [imageTick, setImageTick] = useState(0);
   const [fallbackSrc, setFallbackSrc] = useState<string | null>(null);
   const isVirginiaSkylineStream = /cam-virginia-city-skyline\/stream\.m3u8/i.test(src);
-  const effectiveSrc = fallbackSrc ?? src;
+  const normalizedSrc = normalizeCameraSrc(src);
+  const effectiveSrc = fallbackSrc ?? normalizedSrc;
 
   useEffect(() => {
     setStatus("idle");
     setFallbackSrc(null);
-  }, [src]);
+  }, [normalizedSrc]);
 
   useEffect(() => {
     if (!isImage(effectiveSrc)) {
@@ -182,7 +205,7 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
 
   if (isImage(effectiveSrc)) {
     const imageSrc = `${effectiveSrc}${effectiveSrc.includes("?") ? "&" : "?"}t=${imageTick}`;
-    return <img className="camera-viewer-media" src={imageSrc} alt={title} />;
+    return <img className="camera-viewer-media camera-viewer-media-image" src={imageSrc} alt={title} />;
   }
 
   if (isHls(effectiveSrc) || isDirectVideo(effectiveSrc)) {
@@ -210,6 +233,7 @@ export function CameraMediaViewer({ title, src }: CameraMediaViewerProps) {
       src={effectiveSrc}
       title={title}
       loading="lazy"
+      scrolling="no"
       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
       allowFullScreen
       referrerPolicy={isYouTubeEmbed(effectiveSrc) ? "strict-origin-when-cross-origin" : "origin-when-cross-origin"}
