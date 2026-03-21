@@ -32,6 +32,41 @@ const app = Fastify({
   logger: true
 });
 
+const SKYLINE_SOURCE_PATTERN = /source:'([^']*m3u8\?a=[^']+)'/i;
+const SKYLINE_FALLBACK_TOKENS: Record<string, string> = {
+  "virginia-city/virginia-city.html": "92b5pqmocg4gevq3oligb9ca23"
+};
+
+async function resolveSkylineStreamSource(pageUrl: string): Promise<string | null> {
+  const response = await fetch(pageUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Skyline page request failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  const match = html.match(SKYLINE_SOURCE_PATTERN);
+  const matchedSource = match?.[1] ?? null;
+  let token = matchedSource ? new URL(matchedSource, pageUrl).searchParams.get("a") : null;
+
+  if (!token) {
+    const fallbackEntry = Object.entries(SKYLINE_FALLBACK_TOKENS).find(([pageFragment]) =>
+    pageUrl.includes(pageFragment)
+  );
+    token = fallbackEntry?.[1] ?? null;
+  }
+
+  if (!token) {
+    return null;
+  }
+
+  return `https://hd-auth.skylinewebcams.com/live.m3u8?a=${encodeURIComponent(token)}`;
+}
+
 await app.register(cors, {
   origin: true
 });
@@ -110,7 +145,79 @@ app.get("/api/v1/aircraft/live", async (request, reply) => {
 });
 
 app.get("/api/v1/stacks", async () => stacks);
-app.get("/api/v1/cameras", async () => loadCameraSources());
+app.get("/api/v1/cameras", async (request) => {
+  const cameras = await loadCameraSources();
+  const requestHost = request.headers.host ?? "127.0.0.1:4000";
+  const requestProtocol = request.protocol ?? "http";
+
+  return cameras.map((camera) => {
+    if (camera.provider !== "SkylineWebcams") {
+      return camera;
+    }
+
+    return {
+      ...camera,
+      previewUrl: `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/stream.m3u8`
+    };
+  });
+});
+app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
+  const { cameraId } = request.params as { cameraId: string };
+  const cameras = await loadCameraSources();
+  const camera = cameras.find((entry) => entry.id === cameraId);
+
+  if (!camera?.targetUrl || camera.provider !== "SkylineWebcams") {
+    reply.code(404);
+    return { error: "Camera stream not found." };
+  }
+
+  try {
+    const streamUrl = await resolveSkylineStreamSource(camera.targetUrl);
+    if (!streamUrl) {
+      reply.code(404);
+      return { error: "Live stream source unavailable." };
+    }
+    return reply.redirect(streamUrl);
+  } catch (error) {
+    request.log.warn({ error, cameraId }, "failed to resolve skyline stream");
+    reply.code(502);
+    return { error: "Unable to resolve Skyline live stream." };
+  }
+});
+app.get("/api/v1/cameras/:cameraId/media", async (request, reply) => {
+  const { cameraId } = request.params as { cameraId: string };
+  const cameras = await loadCameraSources();
+  const camera = cameras.find((entry) => entry.id === cameraId);
+
+  if (!camera?.previewUrl) {
+    reply.code(404);
+    return { error: "Camera media not found." };
+  }
+
+  const isImageFeed = /\.(png|jpe?g|gif|webp)(\?|$)/i.test(camera.previewUrl);
+  if (!isImageFeed) {
+    reply.code(400);
+    return { error: "Camera media proxy only supports image feeds." };
+  }
+
+  const upstreamResponse = await fetch(camera.previewUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0"
+    }
+  });
+
+  if (!upstreamResponse.ok) {
+    reply.code(upstreamResponse.status);
+    return { error: "Upstream camera media unavailable." };
+  }
+
+  const contentType = upstreamResponse.headers.get("content-type") ?? "image/jpeg";
+  const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+
+  reply.header("content-type", contentType);
+  reply.header("cache-control", "no-store, max-age=0");
+  return reply.send(buffer);
+});
 app.get("/api/v1/replay", async () => replay);
 app.get("/api/v1/transcripts", async () => events.filter((event) => Boolean(event.transcript)));
 app.get("/api/v1/weather/frames", async () => events.filter((event) => event.sourceType === "weather"));

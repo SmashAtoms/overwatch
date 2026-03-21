@@ -255,6 +255,49 @@ export const stacks: InformationStack[] = [
 
 export const cameras: CameraSource[] = [
   {
+    id: "cam-virginia-city-skyline",
+    name: "Virginia City C Street Camera",
+    provider: "SkylineWebcams",
+    point: { lon: -119.6496, lat: 39.3097 },
+    embedMode: "embed",
+    targetUrl: "https://www.skylinewebcams.com/en/webcam/united-states/nevada/virginia-city/virginia-city.html",
+    previewUrl: "https://embed.skylinewebcams.com/img/1130.jpg",
+    status: "active"
+  },
+  {
+    id: "cam-reno-arch-youtube",
+    name: "Reno Arch Camera",
+    provider: "City of Reno YouTube Live",
+    point: { lon: -119.8136, lat: 39.5285 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=laopqyiYlxg",
+    previewUrl:
+      "https://www.youtube.com/embed/laopqyiYlxg?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
+    id: "cam-reno-city-plaza-youtube",
+    name: "City Plaza Camera",
+    provider: "City of Reno YouTube Live",
+    point: { lon: -119.8133, lat: 39.5256 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=Aea4taIIVPE",
+    previewUrl:
+      "https://www.youtube.com/embed/Aea4taIIVPE?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
+    id: "cam-reno-greater-nevada-field-youtube",
+    name: "Greater Nevada Field Camera",
+    provider: "City of Reno YouTube Live",
+    point: { lon: -119.8057, lat: 39.5274 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=V-ERTb6JXrc",
+    previewUrl:
+      "https://www.youtube.com/embed/V-ERTb6JXrc?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
     id: "cam-tahoe-airport-youtube",
     name: "South Lake Tahoe Airport",
     provider: "YouTube Live",
@@ -263,6 +306,17 @@ export const cameras: CameraSource[] = [
     targetUrl: "https://www.youtube.com/watch?v=Gq1kM9PqNg4",
     previewUrl:
       "https://www.youtube.com/embed/Gq1kM9PqNg4?autoplay=1&mute=1&playsinline=1&rel=0",
+    status: "active"
+  },
+  {
+    id: "cam-unr-quad-youtube",
+    name: "UNR Quad Camera",
+    provider: "YouTube Live",
+    point: { lon: -119.8154, lat: 39.5454 },
+    embedMode: "embed",
+    targetUrl: "https://www.youtube.com/watch?v=5vsOc_X2XKA",
+    previewUrl:
+      "https://www.youtube.com/embed/5vsOc_X2XKA?autoplay=1&mute=1&playsinline=1&rel=0",
     status: "active"
   },
   {
