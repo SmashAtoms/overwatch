@@ -3,7 +3,6 @@ import {
   Badge,
   Panel,
   SectionTitle,
-  StackCard,
   StatusRow
 } from "@signalstack/ui";
 import { formatLagLabel, summarizeLayerStatus } from "@signalstack/policy";
@@ -77,21 +76,6 @@ export default async function HomePage() {
         <Panel>
           <div className="panel-header">
             <SectionTitle
-              title="Information stacks"
-              subtitle="Grouped signals, incidents, and airport activity"
-            />
-            <Badge tone="accent">{data.stacks.length} active</Badge>
-          </div>
-          <div className="stack-list">
-            {data.stacks.map((stack) => (
-              <StackCard key={stack.id} stack={stack} />
-            ))}
-          </div>
-        </Panel>
-
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
               title="Reno Airport ATC"
               subtitle="Pacific-time transcript view for Reno tower and approach traffic"
             />
@@ -101,35 +85,18 @@ export default async function HomePage() {
           </div>
           <RenoAtcPanel events={data.events} />
         </Panel>
-      </section>
 
-      <section className="timeline-grid">
         <Panel>
           <div className="panel-header">
             <SectionTitle
-              title="Future signal modules"
-              subtitle="Scanner, incident correlation, and operator queue workspace planning"
+              title="Reno Police Emergency and Fire Services"
+              subtitle="Live dispatch audio, transcript buckets, and code-word interpretation"
             />
-            <Badge tone="neutral">Planned next</Badge>
+            <Badge tone="accent">
+              {data.events.filter((event) => event.sourceType === "scanner" && event.transcript).length} updates
+            </Badge>
           </div>
-          <div className="future-module-grid">
-            <article className="future-module-card">
-              <strong>Scanner workspace</strong>
-              <p>Conversation threads, incident grouping, and map-linked unit activity.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Camera correlation</strong>
-              <p>Nearest camera suggestions, runway views, and event-linked live feed focus.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Operator queue</strong>
-              <p>Bookmarks, pinned incidents, and replay handoff notes for the next pass.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Authorized ingest hook</strong>
-              <p>Drop-in place for a licensed or operator-owned Reno ATC audio source.</p>
-            </article>
-          </div>
+          <RenoScannerPanel events={data.events} />
         </Panel>
       </section>
 
@@ -137,14 +104,29 @@ export default async function HomePage() {
         <Panel>
           <div className="panel-header">
             <SectionTitle
-              title="Reno Police Radio"
-              subtitle="Scanner transcript, speaker buckets, and code-word interpretation"
+              title="Future signal modules"
+              subtitle="Scanner, camera correlation, and operator queue planning"
             />
-            <Badge tone="accent">
-              {data.events.filter((event) => event.sourceType === "scanner" && event.transcript).length} updates
-            </Badge>
+            <Badge tone="neutral">Planned next</Badge>
           </div>
-          <RenoScannerPanel events={data.events} />
+          <div className="future-module-grid">
+            <article className="future-module-card">
+              <strong>Incident correlation</strong>
+              <p>Stack related radio, camera, aircraft, and weather signals in one operational view.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Operator queue</strong>
+              <p>Pinned incidents, escalation notes, and shift handoff snapshots for the next pass.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Unit movement logic</strong>
+              <p>Track likely dispatch progress and probable route updates once live extraction is tuned.</p>
+            </article>
+            <article className="future-module-card">
+              <strong>Authorized ingest hook</strong>
+              <p>Drop in licensed audio pipelines when live source permissions are finalized.</p>
+            </article>
+          </div>
         </Panel>
       </section>
 

@@ -126,6 +126,81 @@ export type CameraSource = {
   status: "active" | "offline";
 };
 
+export type DispatchPriority = "low" | "medium" | "high";
+
+export type DispatchSummaryWindow = "2m" | "30m";
+
+export type DispatchParseResult = {
+  type: string;
+  location: string;
+  priority: DispatchPriority;
+  units: string[];
+  summary: string;
+  tags: string[];
+  confidence: number;
+};
+
+export type DispatchSegmentInterim = {
+  streamId: string;
+  segmentId: string;
+  sequence: number;
+  receivedAt: string;
+  finalized: false;
+  text: string;
+};
+
+export type DispatchSegmentFinalized = {
+  streamId: string;
+  segmentId: string;
+  sequence: number;
+  receivedAt: string;
+  finalized: true;
+  rawTranscript: string;
+  cleanSentence: string;
+  parse: DispatchParseResult;
+};
+
+export type DispatchCard = {
+  id: string;
+  streamId: string;
+  segmentId: string;
+  sequence: number;
+  timestamp: string;
+  rawTranscript: string;
+  cleanSentence: string;
+  summaryBullets: string[];
+  tags: string[];
+  incidentType: string;
+  location: string;
+  units: string[];
+  priority: DispatchPriority;
+  confidence: number;
+};
+
+export type DispatchSummaryWindowEvent = {
+  id: string;
+  streamId: string;
+  window: DispatchSummaryWindow;
+  from: string;
+  to: string;
+  timestamp: string;
+  bulletSummary: string[];
+  tags: string[];
+  cardIds: string[];
+};
+
+export type DispatchStreamStatus = {
+  streamId: string;
+  sourceUrl: string;
+  state: "idle" | "running" | "stopped" | "error";
+  startedAt: string | null;
+  stoppedAt: string | null;
+  lastError: string | null;
+  sequence: number;
+  receivedSegments: number;
+  finalizedSegments: number;
+};
+
 export interface NormalizedEnvelope<TPayload = unknown> {
   id: string;
   adapterId: string;

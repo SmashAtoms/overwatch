@@ -87,16 +87,6 @@ const SOURCE_LABELS: Record<SourceKind, string> = {
 const FILTERABLE_SOURCE_KINDS: SourceKind[] = ["aircraft", "atc", "scanner", "camera"];
 const AIRCRAFT_REFRESH_INTERVAL_MS = 15_000;
 const DEFAULT_CAMERA_ID = "nv511-4986";
-const NEVADA_511_CHECKLIST_TARGETS: Array<{ label: string; matchers: string[] }> = [
-  { label: "Nevada 511 US-395 @ S Virginia", matchers: ["US-395 @ S Virginia", "I-580 @ S Virginia/Patriot"] },
-  { label: "Nevada 511 I-580 @ Mill St", matchers: ["I-580 @ Mill St", "I580 @ Mill St"] },
-  { label: "Nevada 511 I-580 @ Villanova On Ramp", matchers: ["I-580 @ Villanova On Ramp", "I580 @ Villanova On Ramp"] },
-  { label: "I-80 WB Exit 1 GoldRanch", matchers: ["I-80 WB Exit 1 GoldRanch", "I80 WB Exit 1 GoldRanch"] },
-  { label: "US-395 @ Bordertown", matchers: ["US-395 @ Bordertown", "US395 @ Bordertown"] },
-  { label: "US-395 @ Panther Valley", matchers: ["US-395 @ Panther Valley", "US395 @ Panther Valley"] },
-  { label: "I-80 @ Mogul Exit 7", matchers: ["I-80 @ Mogul Exit 7", "I80 @ Mogul Exit 7"] },
-  { label: "West 4th St @ Woodland Roundabout", matchers: ["West 4th St @ Woodland Roundabout"] }
-];
 
 declare global {
   interface Window {
@@ -187,6 +177,37 @@ function formatStackMeta(item: InformationStack): string {
 
 function normalizeCompare(value: string): string {
   return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function buildCameraMarkerOffsets(cameras: CameraSource[]) {
+  const grouped = new Map<string, CameraSource[]>();
+
+  cameras.forEach((camera) => {
+    const key = `${camera.point.lat.toFixed(5)}:${camera.point.lon.toFixed(5)}`;
+    const group = grouped.get(key) ?? [];
+    group.push(camera);
+    grouped.set(key, group);
+  });
+
+  const offsets = new Map<string, { lat: number; lon: number }>();
+
+  grouped.forEach((group) => {
+    if (group.length === 1) {
+      offsets.set(group[0].id, { lat: group[0].point.lat, lon: group[0].point.lon });
+      return;
+    }
+
+    const radius = 0.0032;
+    group.forEach((camera, index) => {
+      const angle = (Math.PI * 2 * index) / group.length;
+      offsets.set(camera.id, {
+        lat: camera.point.lat + Math.sin(angle) * radius,
+        lon: camera.point.lon + Math.cos(angle) * radius
+      });
+    });
+  });
+
+  return offsets;
 }
 
 function createRegionBounds(region: RegionConfig): [[number, number], [number, number]] {
@@ -428,34 +449,7 @@ export function MapViewport({
     () => (visibleKinds.camera ? scopedCameras : []),
     [scopedCameras, visibleKinds.camera]
   );
-  const nevada511Checklist = useMemo(() => {
-    const nevadaCameras = scopedCameras.filter((camera) => camera.id.startsWith("nv511-"));
-
-    return NEVADA_511_CHECKLIST_TARGETS.map((target) => {
-      const normalizedMatchers = target.matchers.map((matcher) => normalizeCompare(matcher));
-      const matchedCamera =
-        nevadaCameras.find((camera) =>
-          normalizedMatchers.some((matcher) => normalizeCompare(camera.name) === matcher)
-        ) ??
-        nevadaCameras.find((camera) =>
-          normalizedMatchers.some((matcher) => normalizeCompare(camera.name).includes(matcher))
-        ) ??
-        nevadaCameras.find((camera) =>
-          normalizedMatchers.some((matcher) => matcher.includes(normalizeCompare(camera.name)))
-        ) ??
-        null;
-
-      return {
-        targetName: target.label,
-        camera: matchedCamera,
-        status: matchedCamera
-          ? matchedCamera.embedMode === "embed" && matchedCamera.previewUrl
-            ? "live"
-            : "link_only"
-          : "missing"
-      } as const;
-    });
-  }, [scopedCameras]);
+  const cameraMarkerOffsets = useMemo(() => buildCameraMarkerOffsets(filteredCameras), [filteredCameras]);
   const filteredStacks = useMemo(
     () => stacks.filter((stack) => stack.sources.some((source) => isSourceVisible(source))),
     [showWeatherOverlay, stacks, visibleKinds]
@@ -1062,7 +1056,8 @@ export function MapViewport({
 
       filteredCameras.forEach((camera) => {
         const isActiveCamera = activeViewerCameraId === camera.id;
-        const marker = L.circleMarker([camera.point.lat, camera.point.lon], {
+        const markerPoint = cameraMarkerOffsets.get(camera.id) ?? camera.point;
+        const marker = L.circleMarker([markerPoint.lat, markerPoint.lon], {
           radius: isActiveCamera ? 10 : 8,
           fillColor: SOURCE_COLORS.camera,
           color: isActiveCamera ? "#eef6ff" : "#07111f",
@@ -1084,7 +1079,7 @@ export function MapViewport({
     return () => {
       cancelled = true;
     };
-  }, [activeViewerCameraId, filteredCameras, mapState]);
+  }, [activeViewerCameraId, cameraMarkerOffsets, filteredCameras, mapState]);
 
   async function subscribeSelectedFlight() {
     if (!selectedFlightIdentifier) {
@@ -1573,40 +1568,6 @@ export function MapViewport({
                 </div>
               </div>
 
-              <div className="camera-controller-card">
-                <div className="camera-controller-head">
-                  <strong>Nevada 511 checklist</strong>
-                  <small>Priority camera list with live/link status and quick focus.</small>
-                </div>
-                <div className="camera-checklist">
-                  {nevada511Checklist.map((item) => (
-                    <div key={item.targetName} className="camera-checklist-item">
-                      <div className="camera-checklist-copy">
-                        <span>{item.targetName}</span>
-                        <small>
-                          {item.status === "live"
-                            ? "Live"
-                            : item.status === "link_only"
-                              ? "Link only"
-                              : "Not found in current feed"}
-                        </small>
-                      </div>
-                      {item.camera ? (
-                        <button
-                          type="button"
-                          className="camera-select-button"
-                          onClick={() => viewCameraOnDashboard(item.camera)}
-                        >
-                          Open
-                        </button>
-                      ) : (
-                        <Badge tone="danger">Missing</Badge>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {!hasEmbeddedCameraFeed ? (
                 <small className="camera-inline-note">
                   Live in-dashboard camera playback needs a real <code>NEVADA_511_API_KEY</code> in <code>.env.local</code> and a gateway restart.
@@ -1618,135 +1579,6 @@ export function MapViewport({
           )}
         </div>
 
-        <div className="map-sidepanel-scroll">
-          <div className="map-sidecard">
-            <strong>Active map context</strong>
-            {selectedEvent ? (
-              <>
-                <div>{selectedEvent.summary}</div>
-                <small>{formatEventMeta(selectedEvent)}</small>
-                {selectedEvent.sourceType === "aircraft" && selectedFlightIdentifier ? (
-                  <>
-                    <div className="selected-link-row">
-                      <button
-                        type="button"
-                        className="selected-link-button selected-link-button-secondary"
-                        onClick={() => focusOnPoint(selectedEvent.point, 12)}
-                      >
-                        Center aircraft
-                      </button>
-                      <button
-                        type="button"
-                        className="selected-link-button"
-                        onClick={subscribeSelectedFlight}
-                        disabled={flightActionState.status === "submitting"}
-                      >
-                        {isSelectedFlightSubscribed ? "Webhook Active" : "Webhook Flight"}
-                      </button>
-                    </div>
-                    <small>
-                      {selectedAircraftIsMilitary
-                        ? "Military aircraft"
-                        : selectedAircraftHasTailNumber
-                          ? "Tail number"
-                          : "Aircraft ID"}
-                      :{" "}
-                      {selectedAircraftDisplayId ?? selectedFlightIdentifier}
-                      {" | "}
-                      Flight number: {selectedFlightIdentifier ?? "n/a"}
-                      {isSelectedFlightSubscribed ? " | highlighted on map" : ""}
-                    </small>
-                    {selectedAircraftTrack.length > 0 ? (
-                      <div className="aircraft-track-panel">
-                        <strong>Recent trajectory</strong>
-                        <div className="aircraft-track-list">
-                          {selectedAircraftTrack
-                            .slice()
-                            .reverse()
-                            .map((point) => (
-                              <div key={`${point.ts}-${point.lat}-${point.lon}`} className="aircraft-track-item">
-                                <span>{new Date(point.ts).toLocaleTimeString()}</span>
-                                <span>
-                                  {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
-                                </span>
-                                <span>
-                                  {point.altM !== null ? `${Math.round(point.altM * 3.28084).toLocaleString()} ft` : "alt n/a"}
-                                </span>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
-              </>
-            ) : null}
-            {selectedStack ? (
-              <>
-                <div>{selectedStack.title}</div>
-                <small>{formatStackMeta(selectedStack)}</small>
-              </>
-            ) : null}
-            {!selectedEvent && !selectedStack && !selectedCamera ? (
-              <div>Click an event, stack, or camera marker to inspect it.</div>
-            ) : null}
-            {flightActionState.message ? (
-              <small
-                className={
-                  flightActionState.status === "error"
-                    ? "camera-inline-note camera-inline-note-danger"
-                    : "camera-inline-note"
-                }
-              >
-                {flightActionState.message}
-              </small>
-            ) : null}
-            {aircraftRefreshState.message ? (
-              <small
-                className={
-                  aircraftRefreshState.status === "error"
-                    ? "camera-inline-note camera-inline-note-danger"
-                    : "camera-inline-note"
-                }
-              >
-                {aircraftRefreshState.message}
-              </small>
-            ) : null}
-          </div>
-
-          <div className="map-sidecard">
-            <strong>Overlay controls</strong>
-            <div className="filter-list">
-              {FILTERABLE_SOURCE_KINDS.map((kind) => (
-                <label key={kind} className="filter-item">
-                  <span className="filter-item-main">
-                    <input
-                      type="checkbox"
-                      checked={visibleKinds[kind]}
-                      onChange={() => toggleKind(kind)}
-                    />
-                    <span className="filter-swatch" style={{ background: SOURCE_COLORS[kind] }} />
-                    <span>{SOURCE_LABELS[kind]}</span>
-                  </span>
-                  <span className="filter-count">{sourceCounts[kind] ?? 0}</span>
-                </label>
-              ))}
-            </div>
-            <small>Keep the live viewer fixed above and quickly reduce map noise here without changing the base map.</small>
-          </div>
-
-          <div className="map-sidecard map-sidecard-muted">
-            <strong>Workspace status</strong>
-            <div className="map-meta-list">
-              <span>{mapMode === "google" ? "Google Maps base available" : "Leaflet base active"}</span>
-              <span>{showWeatherOverlay ? "Doppler and clouds on" : "Weather overlay off"}</span>
-              <span>Cameras use Nevada 511 API</span>
-            </div>
-            <small>
-              This section stays compact so the right rail can prioritize live video now and scanner or transcript modules later.
-            </small>
-          </div>
-        </div>
       </div>
 
       {isCameraPopupOpen && viewerCamera && typeof document !== "undefined"

@@ -24,6 +24,8 @@ import {
   recordWebhookEvent,
   subscribeToFlightByNumber
 } from "./aerodatabox.js";
+import { OpenAIRealtimeProvider } from "./services/transcription/openai-realtime-provider.js";
+import { DispatchPipeline } from "./services/pipeline/dispatch-pipeline.js";
 
 loadEnv({
   path: resolve(process.cwd(), "../../.env.local")
@@ -33,6 +35,76 @@ const app = Fastify({
   logger: true
 });
 
+type StreamSocket = {
+  send: (payload: string) => void;
+};
+
+const streamClients = new Set<StreamSocket>();
+
+function broadcastEvent(type: string, payload: unknown) {
+  const message = JSON.stringify({ type, payload });
+  streamClients.forEach((socket) => {
+    try {
+      socket.send(message);
+    } catch {
+      // Ignore dead sockets; close handler removes them.
+    }
+  });
+}
+
+function parseDispatchStreamUrls(raw: string | undefined): string[] {
+  if (!raw || !raw.trim()) {
+    return [];
+  }
+
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((value): value is string => typeof value === "string" && value.length > 0);
+      }
+    } catch {
+      // fall through to CSV parsing
+    }
+  }
+
+  return trimmed
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+const dispatchStreamUrls = parseDispatchStreamUrls(process.env.DISPATCH_STREAM_URLS);
+const dispatchPipelineEnabled = (process.env.DISPATCH_PIPELINE_ENABLED ?? "true").toLowerCase() === "true";
+const dispatchPipelineAutostart = (process.env.DISPATCH_PIPELINE_AUTOSTART ?? "false").toLowerCase() === "true";
+const dispatchChunkIntervalMs = Number(process.env.DISPATCH_CHUNK_INTERVAL_MS ?? 1000);
+const dispatchFinalizeEveryChunks = Number(process.env.DISPATCH_FINALIZE_EVERY_CHUNKS ?? 4);
+const parserRuleConfidenceMin = Number(process.env.PARSER_RULE_CONFIDENCE_MIN ?? 0.65);
+const dispatchTranscriptionProvider = new OpenAIRealtimeProvider({
+  apiKey: process.env.OPENAI_API_KEY ?? null,
+  model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview"
+});
+
+const dispatchPipeline = new DispatchPipeline({
+  streamUrls: dispatchStreamUrls,
+  chunkIntervalMs: Number.isFinite(dispatchChunkIntervalMs) ? dispatchChunkIntervalMs : 1000,
+  finalizeEveryChunks: Number.isFinite(dispatchFinalizeEveryChunks) ? dispatchFinalizeEveryChunks : 4,
+  provider: dispatchTranscriptionProvider,
+  parserFallback: {
+    apiKey: process.env.OPENAI_API_KEY ?? null,
+    model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview",
+    confidenceThreshold: Number.isFinite(parserRuleConfidenceMin) ? parserRuleConfidenceMin : 0.65
+  },
+  onEvent: ({ type, payload }) => {
+    broadcastEvent(type, payload);
+  }
+});
+
+if (dispatchPipelineEnabled && dispatchPipelineAutostart && dispatchStreamUrls.length > 0) {
+  dispatchPipeline.startAll();
+}
+
 const SKYLINE_SOURCE_PATTERN = /source:'([^']*m3u8\?a=[^']+)'/i;
 const HDONTAP_PLAYER_DATA_PATTERN = /<script id="player-data" type="application\/json">([\s\S]*?)<\/script>/i;
 const SKYLINE_NETWORK_M3U8_PATTERN = /https:\/\/hd-auth\.skylinewebcams\.com\/live\.m3u8\?a=[^"'&\s]+/i;
@@ -41,6 +113,10 @@ const SKYLINE_FALLBACK_TOKENS: Record<string, string> = {
 };
 const SKYLINE_STREAM_CACHE_TTL_MS = 120_000;
 const SKYLINE_BROWSER_TIMEOUT_MS = 20_000;
+const EARTHCAM_API_PATTERN = /window\.earthcam\.api\s*=\s*"([^"]+)"/i;
+const EARTHCAM_CLIENT_PATTERN = /window\.earthcam\.client\s*=\s*'([^']+)'/i;
+const EARTHCAM_ALLOWED_HOSTS = ["earthcam.net", "earthcam.com"];
+const DIRECT_HLS_ALLOWED_HOSTS = ["166.203.170.148"];
 const SKYLINE_EDGE_PATHS = [
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
@@ -259,6 +335,162 @@ async function resolveHdontapStreamSource(pageUrl: string): Promise<string | nul
   }
 }
 
+function isAllowedEarthCamUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+
+    return EARTHCAM_ALLOWED_HOSTS.some(
+      (hostSuffix) => parsed.hostname === hostSuffix || parsed.hostname.endsWith(`.${hostSuffix}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rewritePlaylistForProxy(playlist: string, baseUrl: string, proxyPrefix: string): string {
+  const base = new URL(baseUrl);
+
+  return playlist
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return line;
+      }
+
+      if (trimmed.startsWith("#")) {
+        if (!trimmed.includes('URI="')) {
+          return line;
+        }
+        return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
+          const resolved = new URL(uri, base).toString();
+          return `URI="${proxyPrefix}?url=${encodeURIComponent(resolved)}"`;
+        });
+      }
+
+      const resolved = new URL(trimmed, base).toString();
+      return `${proxyPrefix}?url=${encodeURIComponent(resolved)}`;
+    })
+    .join("\n");
+}
+
+function isAllowedDirectHlsUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+
+    return DIRECT_HLS_ALLOWED_HOSTS.some(
+      (host) => parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function fetchEarthCamApiUrl(pageUrl: string): Promise<string | null> {
+  const response = await fetch(pageUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`EarthCam page request failed: ${response.status}`);
+  }
+
+  const html = await response.text();
+  const directApiMatch = html.match(EARTHCAM_API_PATTERN);
+  if (directApiMatch?.[1]) {
+    return directApiMatch[1];
+  }
+
+  const clientMatch = html.match(EARTHCAM_CLIENT_PATTERN);
+  if (!clientMatch?.[1]) {
+    return null;
+  }
+
+  return `https://share.earthcam.net/api/${clientMatch[1]}`;
+}
+
+async function resolveEarthCamStreamSource(pageUrl: string): Promise<string | null> {
+  const apiUrl = await fetchEarthCamApiUrl(pageUrl);
+  if (!apiUrl) {
+    return null;
+  }
+
+  const response = await fetch(apiUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0",
+      origin: "https://share.earthcam.net",
+      referer: "https://share.earthcam.net/"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`EarthCam API request failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    projects?: Array<{
+      servers?: Array<{
+        api?: string;
+        views?: Array<{
+          live?: {
+            regular?: {
+              stream?: string;
+            };
+          };
+        }>;
+      }>;
+    }>;
+  };
+
+  let stream = payload.projects?.[0]?.servers?.[0]?.views?.[0]?.live?.regular?.stream;
+  if (typeof stream === "string") {
+    return stream;
+  }
+
+  const serverApiPath = payload.projects?.[0]?.servers?.[0]?.api;
+  if (typeof serverApiPath !== "string") {
+    return null;
+  }
+
+  const serverApiUrl = new URL(serverApiPath, "https://share.earthcam.net").toString();
+  const serverResponse = await fetch(serverApiUrl, {
+    headers: {
+      "user-agent": "SmashAtoms-Overwatch/1.0",
+      origin: "https://share.earthcam.net",
+      referer: "https://share.earthcam.net/"
+    }
+  });
+
+  if (!serverResponse.ok) {
+    throw new Error(`EarthCam server API request failed: ${serverResponse.status}`);
+  }
+
+  const serverPayload = (await serverResponse.json()) as {
+    views?: Array<{
+      live?: {
+        regular?: {
+          stream?: string;
+        };
+      };
+    }>;
+  };
+
+  stream = serverPayload.views?.[0]?.live?.regular?.stream;
+  if (typeof stream !== "string") {
+    return null;
+  }
+
+  return stream;
+}
+
 await app.register(cors, {
   origin: true
 });
@@ -360,6 +592,8 @@ app.get("/api/v1/cameras", async (request) => {
     if (
       camera.provider !== "SkylineWebcams" &&
       camera.provider !== "HDOnTap" &&
+      camera.provider !== "EarthCam" &&
+      camera.provider !== "Direct HLS" &&
       !isBrownriceSnapshot
     ) {
       return camera;
@@ -369,7 +603,9 @@ app.get("/api/v1/cameras", async (request) => {
       ...camera,
       previewUrl: isBrownriceSnapshot
         ? `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/media`
-        : `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/stream.m3u8`
+        : camera.provider === "Direct HLS"
+          ? `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/direct-stream.m3u8`
+          : `${requestProtocol}://${requestHost}/api/v1/cameras/${camera.id}/stream.m3u8`
     };
   });
 });
@@ -380,7 +616,9 @@ app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
 
   if (
     !camera?.targetUrl ||
-    (camera.provider !== "SkylineWebcams" && camera.provider !== "HDOnTap")
+    (camera.provider !== "SkylineWebcams" &&
+      camera.provider !== "HDOnTap" &&
+      camera.provider !== "EarthCam")
   ) {
     reply.code(404);
     return { error: "Camera stream not found." };
@@ -390,19 +628,207 @@ app.get("/api/v1/cameras/:cameraId/stream.m3u8", async (request, reply) => {
     const streamUrl =
       camera.provider === "SkylineWebcams"
         ? await resolveSkylineStreamSource(camera.targetUrl, cameraId)
-        : await resolveHdontapStreamSource(camera.targetUrl);
+        : camera.provider === "HDOnTap"
+          ? await resolveHdontapStreamSource(camera.targetUrl)
+          : await resolveEarthCamStreamSource(camera.targetUrl);
 
     if (!streamUrl) {
       reply.code(404);
       return { error: "Live stream source unavailable." };
     }
-    return reply.redirect(streamUrl);
+
+    if (camera.provider !== "EarthCam") {
+      return reply.redirect(streamUrl);
+    }
+
+    const upstreamResponse = await fetch(streamUrl, {
+      headers: {
+        "user-agent": "SmashAtoms-Overwatch/1.0",
+        origin: "https://share.earthcam.net",
+        referer: "https://share.earthcam.net/"
+      }
+    });
+
+    if (!upstreamResponse.ok) {
+      reply.code(upstreamResponse.status);
+      return { error: "EarthCam stream source unavailable." };
+    }
+
+    const playlistText = await upstreamResponse.text();
+    const requestHost = request.headers.host ?? "127.0.0.1:4000";
+    const requestProtocol = request.protocol ?? "http";
+    const proxyPrefix = `${requestProtocol}://${requestHost}/api/v1/cameras/${cameraId}/earthcam-proxy`;
+    const rewritten = rewritePlaylistForProxy(playlistText, streamUrl, proxyPrefix);
+
+    reply.header("content-type", "application/vnd.apple.mpegurl");
+    reply.header("cache-control", "no-store, max-age=0");
+    return reply.send(rewritten);
   } catch (error) {
     request.log.warn({ error, cameraId }, "failed to resolve camera stream");
     reply.code(502);
     return { error: "Unable to resolve live stream." };
   }
 });
+app.get(
+  "/api/v1/cameras/:cameraId/direct-stream.m3u8",
+  {
+    schema: {
+      params: Type.Object({
+        cameraId: Type.String({ minLength: 1 })
+      })
+    }
+  },
+  async (request, reply) => {
+    const { cameraId } = request.params as { cameraId: string };
+    const cameras = await loadCameraSources();
+    const camera = cameras.find((entry) => entry.id === cameraId);
+    const sourceUrl = camera?.previewUrl ?? camera?.targetUrl ?? null;
+
+    if (!camera || camera.provider !== "Direct HLS" || !sourceUrl || !isAllowedDirectHlsUrl(sourceUrl)) {
+      reply.code(404);
+      return { error: "Direct HLS camera stream not found." };
+    }
+
+    const upstreamResponse = await fetch(sourceUrl, {
+      headers: {
+        "user-agent": "SmashAtoms-Overwatch/1.0"
+      }
+    });
+
+    if (!upstreamResponse.ok) {
+      reply.code(upstreamResponse.status);
+      return { error: "Direct HLS stream unavailable." };
+    }
+
+    const playlistText = await upstreamResponse.text();
+    const requestHost = request.headers.host ?? "127.0.0.1:4000";
+    const requestProtocol = request.protocol ?? "http";
+    const proxyPrefix = `${requestProtocol}://${requestHost}/api/v1/cameras/${cameraId}/direct-proxy`;
+    const rewritten = rewritePlaylistForProxy(playlistText, sourceUrl, proxyPrefix);
+
+    reply.header("content-type", "application/vnd.apple.mpegurl");
+    reply.header("cache-control", "no-store, max-age=0");
+    return reply.send(rewritten);
+  }
+);
+app.get(
+  "/api/v1/cameras/:cameraId/direct-proxy",
+  {
+    schema: {
+      params: Type.Object({
+        cameraId: Type.String({ minLength: 1 })
+      }),
+      querystring: Type.Object({
+        url: Type.String({ minLength: 1 })
+      })
+    }
+  },
+  async (request, reply) => {
+    const { cameraId } = request.params as { cameraId: string };
+    const { url } = request.query as { url: string };
+    const cameras = await loadCameraSources();
+    const camera = cameras.find((entry) => entry.id === cameraId);
+
+    if (!camera || camera.provider !== "Direct HLS") {
+      reply.code(404);
+      return { error: "Direct HLS camera not found." };
+    }
+
+    if (!isAllowedDirectHlsUrl(url)) {
+      reply.code(400);
+      return { error: "Direct HLS proxy only allows approved hosts." };
+    }
+
+    const upstreamResponse = await fetch(url, {
+      headers: {
+        "user-agent": "SmashAtoms-Overwatch/1.0"
+      }
+    });
+
+    if (!upstreamResponse.ok) {
+      reply.code(upstreamResponse.status);
+      return { error: "Direct HLS upstream unavailable." };
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const requestHost = request.headers.host ?? "127.0.0.1:4000";
+    const requestProtocol = request.protocol ?? "http";
+    const proxyPrefix = `${requestProtocol}://${requestHost}/api/v1/cameras/${cameraId}/direct-proxy`;
+
+    if (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(\?|$)/i.test(url)) {
+      const playlistText = await upstreamResponse.text();
+      const rewritten = rewritePlaylistForProxy(playlistText, url, proxyPrefix);
+      reply.header("content-type", "application/vnd.apple.mpegurl");
+      reply.header("cache-control", "no-store, max-age=0");
+      return reply.send(rewritten);
+    }
+
+    const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.header("content-type", contentType || "application/octet-stream");
+    reply.header("cache-control", "no-store, max-age=0");
+    return reply.send(buffer);
+  }
+);
+app.get(
+  "/api/v1/cameras/:cameraId/earthcam-proxy",
+  {
+    schema: {
+      params: Type.Object({
+        cameraId: Type.String({ minLength: 1 })
+      }),
+      querystring: Type.Object({
+        url: Type.String({ minLength: 1 })
+      })
+    }
+  },
+  async (request, reply) => {
+    const { cameraId } = request.params as { cameraId: string };
+    const { url } = request.query as { url: string };
+    const cameras = await loadCameraSources();
+    const camera = cameras.find((entry) => entry.id === cameraId);
+
+    if (!camera || camera.provider !== "EarthCam") {
+      reply.code(404);
+      return { error: "EarthCam camera not found." };
+    }
+
+    if (!isAllowedEarthCamUrl(url)) {
+      reply.code(400);
+      return { error: "EarthCam proxy only allows earthcam hosts." };
+    }
+
+    const upstreamResponse = await fetch(url, {
+      headers: {
+        "user-agent": "SmashAtoms-Overwatch/1.0",
+        origin: "https://share.earthcam.net",
+        referer: "https://share.earthcam.net/"
+      }
+    });
+
+    if (!upstreamResponse.ok) {
+      reply.code(upstreamResponse.status);
+      return { error: "EarthCam upstream unavailable." };
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") ?? "";
+    const requestHost = request.headers.host ?? "127.0.0.1:4000";
+    const requestProtocol = request.protocol ?? "http";
+    const proxyPrefix = `${requestProtocol}://${requestHost}/api/v1/cameras/${cameraId}/earthcam-proxy`;
+
+    if (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(\?|$)/i.test(url)) {
+      const playlistText = await upstreamResponse.text();
+      const rewritten = rewritePlaylistForProxy(playlistText, url, proxyPrefix);
+      reply.header("content-type", "application/vnd.apple.mpegurl");
+      reply.header("cache-control", "no-store, max-age=0");
+      return reply.send(rewritten);
+    }
+
+    const buffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    reply.header("content-type", contentType || "application/octet-stream");
+    reply.header("cache-control", "no-store, max-age=0");
+    return reply.send(buffer);
+  }
+);
 app.post(
   "/api/v1/cameras/:cameraId/stream-token",
   {
@@ -494,6 +920,73 @@ app.get("/api/v1/cameras/:cameraId/media", async (request, reply) => {
 app.get("/api/v1/replay", async () => replay);
 app.get("/api/v1/transcripts", async () => events.filter((event) => Boolean(event.transcript)));
 app.get("/api/v1/weather/frames", async () => events.filter((event) => event.sourceType === "weather"));
+app.get("/api/v1/dispatch/feed", async (request) => {
+  const query = request.query as { limit?: string | number | undefined };
+  const limitRaw = query.limit;
+  const limit = typeof limitRaw === "number" ? limitRaw : Number(limitRaw ?? 50);
+  return {
+    items: dispatchPipeline.getFeed(Number.isFinite(limit) ? limit : 50)
+  };
+});
+app.get("/api/v1/dispatch/streams/status", async () => ({
+  enabled: dispatchPipelineEnabled,
+  autostart: dispatchPipelineAutostart,
+  configuredStreams: dispatchStreamUrls,
+  provider: dispatchTranscriptionProvider.id,
+  items: dispatchPipeline.getStatus()
+}));
+app.post("/api/v1/dispatch/streams/start", async (request, reply) => {
+  const body = (request.body ?? {}) as { streamId?: string; sourceUrl?: string };
+
+  if (body.streamId && body.sourceUrl) {
+    dispatchPipeline.startStream(body.streamId, body.sourceUrl);
+    return { ok: true, streamId: body.streamId, sourceUrl: body.sourceUrl };
+  }
+
+  if (dispatchStreamUrls.length === 0) {
+    reply.code(400);
+    return { ok: false, error: "No DISPATCH_STREAM_URLS configured." };
+  }
+
+  dispatchPipeline.startAll();
+  return { ok: true, started: "all-configured-streams" };
+});
+app.post("/api/v1/dispatch/streams/stop", async (request) => {
+  const body = (request.body ?? {}) as { streamId?: string };
+  if (body.streamId) {
+    dispatchPipeline.stopStream(body.streamId);
+    return { ok: true, stopped: body.streamId };
+  }
+  dispatchPipeline.stopAll();
+  return { ok: true, stopped: "all" };
+});
+app.get("/overlay", async (_, reply) => {
+  const latest = dispatchPipeline.getOverlayPayload();
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dispatch Overlay</title>
+    <style>
+      html, body { margin:0; padding:0; background:transparent; color:#eaf4ff; font-family:Segoe UI, Arial, sans-serif; }
+      .wrap { padding:16px 18px; background:rgba(5,15,27,0.5); border:1px solid rgba(123,226,209,0.3); border-radius:12px; max-width:1280px; }
+      .line { font-size:34px; font-weight:700; line-height:1.15; }
+      .summary { margin-top:8px; font-size:20px; color:#b7c8e4; }
+      .meta { margin-top:6px; font-size:13px; color:#88a2c4; text-transform:uppercase; letter-spacing:0.06em; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="line">${latest.line}</div>
+      <div class="summary">${latest.summary}</div>
+      <div class="meta">Updated ${latest.timestamp}</div>
+    </div>
+  </body>
+</html>`;
+  reply.header("content-type", "text/html; charset=utf-8");
+  return reply.send(html);
+});
 app.get("/api/v1/integrations/aerodatabox/status", async () => {
   const config = getAeroDataBoxConfig();
   return {
@@ -621,6 +1114,8 @@ app.get("/api/v1/tracks/:trackId", async (request, reply) => {
 });
 
 app.get("/api/v1/stream", { websocket: true }, (socket) => {
+  streamClients.add(socket);
+
   socket.send(
     JSON.stringify({
       type: "adapter.health",
@@ -631,6 +1126,18 @@ app.get("/api/v1/stream", { websocket: true }, (socket) => {
     JSON.stringify({
       type: "stack.upsert",
       payload: stacks
+    })
+  );
+  socket.send(
+    JSON.stringify({
+      type: "dispatch.stream.status.snapshot",
+      payload: dispatchPipeline.getStatus()
+    })
+  );
+  socket.send(
+    JSON.stringify({
+      type: "dispatch.feed.snapshot",
+      payload: dispatchPipeline.getFeed(30)
     })
   );
 
@@ -645,6 +1152,7 @@ app.get("/api/v1/stream", { websocket: true }, (socket) => {
 
   socket.on("close", () => {
     clearInterval(interval);
+    streamClients.delete(socket);
   });
 });
 

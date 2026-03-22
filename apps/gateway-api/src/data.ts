@@ -329,6 +329,61 @@ export const cameras: CameraSource[] = [
     status: "active"
   },
   {
+    id: "cam-heavenly-highway-50",
+    name: "Heavenly Village - Highway 50",
+    provider: "IPCamLive",
+    point: { lon: -119.9439, lat: 38.9571 },
+    embedMode: "embed",
+    targetUrl: "https://theshopsatheavenly.com/webcams/",
+    previewUrl:
+      "https://g1.ipcamlive.com/player/player.php?alias=663aa2e1bf523&autoplay=1&mute=1&videofitmode=cover",
+    status: "active"
+  },
+  {
+    id: "cam-heavenly-gondola",
+    name: "Heavenly Village - Gondola",
+    provider: "IPCamLive",
+    point: { lon: -119.9429, lat: 38.9568 },
+    embedMode: "embed",
+    targetUrl: "https://theshopsatheavenly.com/webcams/",
+    previewUrl:
+      "https://g1.ipcamlive.com/player/player.php?alias=663aa40c3decb&autoplay=1&mute=1&videofitmode=cover",
+    status: "active"
+  },
+  {
+    id: "cam-heavenly-ice-rink-mini-golf",
+    name: "Heavenly Village - Ice Rink/Mini Golf",
+    provider: "IPCamLive",
+    point: { lon: -119.9424, lat: 38.9564 },
+    embedMode: "embed",
+    targetUrl: "https://theshopsatheavenly.com/webcams/",
+    previewUrl:
+      "https://g1.ipcamlive.com/player/player.php?alias=663aa5141fa98&autoplay=1&mute=1&videofitmode=cover",
+    status: "active"
+  },
+  {
+    id: "cam-lake-temp-direct-hls",
+    name: "Lake Tahoe Live HLS",
+    provider: "Direct HLS",
+    point: { lon: -119.9772, lat: 38.9399 },
+    embedMode: "embed",
+    targetUrl: "http://166.203.170.148:82/h264/Lake/temp.m3u8",
+    previewUrl: "http://166.203.170.148:82/h264/Lake/temp.m3u8?session=582715e7201d6297218936b86b475a5d",
+    status: "active"
+  },
+  {
+    id: "cam-earthcam-edgewood-tahoe",
+    name: "Edgewood Tahoe Lake Cam",
+    provider: "EarthCam",
+    point: { lon: -119.943168, lat: 38.964284 },
+    embedMode: "embed",
+    targetUrl:
+      "https://share.earthcam.net/tJ90CoLmq7TzrY396Yd88EuwncqS_hRHM-P6bJrwPcQ!.tJ90CoLmq7TzrY396Yd88O87k9FviI0KvsfIt7imMzg!.tJ90CoLmq7TzrY396Yd88Jwhh43XxoA_EoIOx8e0mQY!/edgewood_tahoe/lake_tahoe_cam/live",
+    previewUrl:
+      "https://resource6.earthcam.net/v0/object/GtVJZlL4VnwZ3X0VJw8BsTRwezYeGMZiEcKlvoGa0IYNxQAqapAVVnNTRqduHk_J?i=65cb388d1b022e61541eed378fa1db0a",
+    status: "active"
+  },
+  {
     id: "cam-unr-quad-youtube",
     name: "UNR Quad Camera",
     provider: "YouTube Live",
