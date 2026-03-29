@@ -1,0 +1,82 @@
+substitutions:
+  _REGION: us-west1
+  _WEB_SERVICE: overwatch-web
+  _API_SERVICE: overwatch-gateway
+  _AR_REPO: overwatch
+
+steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Ensure Artifact Registry
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud artifacts repositories describe ${_AR_REPO} --location=${_REGION} >/dev/null 2>&1 || \
+          gcloud artifacts repositories create ${_AR_REPO} \
+            --repository-format=docker \
+            --location=${_REGION} \
+            --description="Reno Overwatch demo images"
+
+  - name: gcr.io/cloud-builders/docker
+    id: Build gateway image
+    args:
+      - build
+      - -f
+      - apps/gateway-api/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_API_SERVICE}:$BUILD_ID
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Build web image
+    args:
+      - build
+      - -f
+      - apps/web/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:$BUILD_ID
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push gateway image
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_API_SERVICE}:$BUILD_ID
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push web image
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:$BUILD_ID
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy gateway
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run deploy ${_API_SERVICE} \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_API_SERVICE}:$BUILD_ID \
+          --region=${_REGION} \
+          --platform=managed \
+          --allow-unauthenticated
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy web
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        GATEWAY_URL="$(gcloud run services describe ${_API_SERVICE} --region=${_REGION} --format='value(status.url)')"
+        gcloud run deploy ${_WEB_SERVICE} \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:$BUILD_ID \
+          --region=${_REGION} \
+          --platform=managed \
+          --allow-unauthenticated \
+          --set-env-vars=GATEWAY_API_URL=$$GATEWAY_URL,NEXT_PUBLIC_GATEWAY_API_URL=$$GATEWAY_URL
+
+options:
+  logging: GCS_ONLY

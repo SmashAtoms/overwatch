@@ -15,6 +15,7 @@
     "@signalstack/policy": "file:../../packages/policy",
     "@signalstack/ui": "file:../../packages/ui",
     "cesium": "^1.133.1",
+    "dotenv": "^17.3.1",
     "hls.js": "^1.6.13",
     "leaflet": "^1.9.4",
     "next": "^15.5.0",

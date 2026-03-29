@@ -28,6 +28,7 @@ body {
     linear-gradient(180deg, #06101c 0%, #091728 42%, #08121f 100%);
   color: var(--text);
   font-family: "Segoe UI", "Inter", sans-serif;
+  overflow-x: hidden;
 }
 
 body::before {
@@ -54,6 +55,8 @@ a {
   gap: 1rem;
   min-height: 100vh;
   padding: 1rem 1.25rem 1.25rem;
+  width: 100%;
+  max-width: 100%;
 }
 
 .topbar,
@@ -255,7 +258,8 @@ a {
   background: rgba(5, 15, 27, 0.82);
   color: var(--text);
   border-radius: 0.9rem;
-  padding: 0.5rem 0.8rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
   font: inherit;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
@@ -286,6 +290,7 @@ a {
   border-radius: 0.85rem;
   font: inherit;
   cursor: pointer;
+  min-height: 2.6rem;
 }
 
 .map-dpad-north {
@@ -339,6 +344,13 @@ a {
   gap: 0.5rem;
   max-width: calc(100% - 2rem);
   pointer-events: none;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.map-status-row::-webkit-scrollbar {
+  display: none;
 }
 
 .map-overlay-state {
@@ -564,6 +576,7 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.85rem 1rem;
   border-radius: 1rem;
@@ -583,11 +596,89 @@ a {
   color: var(--text);
   text-decoration: none;
   font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
 }
 
 .reno-atc-meta {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.reno-atc-audio-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(89, 199, 255, 0.08), transparent 32%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.reno-atc-audio-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reno-atc-audio-copy {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.reno-atc-audio-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.reno-atc-player-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16rem;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid rgba(146, 167, 198, 0.18);
+  background:
+    linear-gradient(180deg, rgba(8, 19, 34, 0.94), rgba(5, 13, 24, 0.98)),
+    radial-gradient(circle at top right, rgba(89, 199, 255, 0.16), transparent 28%);
+}
+
+.reno-atc-player-box.is-dimmed {
+  opacity: 0.8;
+}
+
+.reno-atc-player-box.is-live {
+  box-shadow: inset 0 0 0 1px rgba(89, 199, 255, 0.12);
+}
+
+.reno-atc-player-frame {
+  width: 100%;
+  min-height: 16rem;
+  border: 0;
+  background: #09121f;
+}
+
+.reno-atc-direct-player {
+  width: 100%;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.reno-atc-audio-element {
+  width: 100%;
+  min-height: 3rem;
+}
+
+.reno-atc-direct-note {
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.92rem;
 }
 
 .reno-atc-grid {
@@ -690,7 +781,7 @@ a {
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  min-height: 2.7rem;
+  min-height: 2.9rem;
   padding: 0.75rem 1rem;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -1007,7 +1098,7 @@ a {
 
 .reno-scanner-audio-element {
   width: 100%;
-  min-height: 3.5rem;
+  min-height: 3rem;
 }
 
 .reno-scanner-direct-note {
@@ -1234,6 +1325,7 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 2.6rem;
   padding: 0.55rem 0.85rem;
   border-radius: 999px;
   background: rgba(89, 199, 255, 0.2);
@@ -1413,6 +1505,7 @@ a {
 .camera-select {
   flex: 1;
   min-width: 0;
+  min-height: 2.8rem;
   padding: 0.75rem 0.9rem;
   border-radius: 0.9rem;
   border: 1px solid rgba(146, 167, 198, 0.18);
@@ -1422,6 +1515,7 @@ a {
 }
 
 .camera-select-button {
+  min-height: 2.8rem;
   padding: 0.75rem 0.9rem;
   border-radius: 0.9rem;
   border: 1px solid rgba(89, 199, 255, 0.45);
@@ -1567,8 +1661,8 @@ a {
 .camera-popup {
   position: relative;
   z-index: 1;
-  width: min(1200px, calc(100vw - 3rem));
-  max-height: calc(100vh - 3rem);
+  width: min(1200px, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
   overflow: auto;
   border-radius: 1.25rem;
   border: 1px solid rgba(120, 162, 212, 0.24);
@@ -1737,6 +1831,25 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .map-viewport {
+    min-height: 0;
+    height: auto;
+  }
+
+  .map-stage-live {
+    min-height: 58vh;
+    height: 58vh;
+  }
+
+  .map-sidepanel {
+    display: block;
+    height: auto;
+  }
+
+  .map-sidecard-primary {
+    padding: 1rem;
+  }
+
   .live-session-state {
     grid-template-columns: 1fr;
   }
@@ -1744,7 +1857,8 @@ a {
 
 @media (max-width: 720px) {
   .shell {
-    padding: 0.8rem;
+    padding: 0.7rem;
+    gap: 0.75rem;
   }
 
   .topbar {
@@ -1756,13 +1870,64 @@ a {
   }
 
   .map-control-dock {
-    width: calc(100% - 2rem);
+    top: 0.65rem;
+    left: 0.65rem;
+    width: calc(100% - 1.3rem);
+    max-height: calc(100% - 1.3rem);
+    overflow: auto;
+    padding: 0.7rem;
+  }
+
+  .map-control-section strong {
+    font-size: 0.72rem;
+  }
+
+  .map-action-group {
+    gap: 0.45rem;
+  }
+
+  .map-action-button {
+    flex: 1 1 calc(50% - 0.45rem);
+    font-size: 0.88rem;
+    padding: 0.5rem 0.7rem;
+  }
+
+  .map-stage-live {
+    min-height: 52vh;
+    height: 52vh;
+  }
+
+  .map-status-row {
+    left: 0.65rem;
+    bottom: 0.65rem;
+    max-width: calc(100% - 1.3rem);
+  }
+
+  .map-camera-prompt {
+    right: 0.65rem;
+    bottom: 3.5rem;
+    max-width: min(14.5rem, calc(100% - 1.3rem));
+    padding: 0.65rem 0.75rem;
+    font-size: 0.84rem;
   }
 
   .camera-select-row,
   .camera-action-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .camera-viewer-box,
+  .camera-viewer-box-primary {
+    min-height: 12rem;
+    aspect-ratio: 16 / 10;
+  }
+
+  .camera-action-row .camera-select-button,
+  .camera-action-row .selected-link-button,
+  .camera-action-row .selected-link-button-secondary {
+    width: 100%;
+    justify-content: center;
   }
 
   .camera-viewer-header-row {
@@ -1781,6 +1946,7 @@ a {
 
   .reno-scanner-header,
   .reno-scanner-actions,
+  .reno-atc-audio-head,
   .reno-scanner-audio-head,
   .reno-scanner-broadcast-bar {
     flex-direction: column;
@@ -1793,5 +1959,37 @@ a {
 
   .reno-scanner-control-row {
     width: 100%;
+  }
+
+  .reno-live-button,
+  .reno-play-button {
+    width: 100%;
+  }
+
+  .reno-atc-actions,
+  .reno-scanner-actions {
+    width: 100%;
+  }
+
+  .reno-atc-link,
+  .reno-scanner-link {
+    width: 100%;
+  }
+
+  .panel-header {
+    gap: 0.6rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .workspace-title {
+    font-size: clamp(1.45rem, 7vw, 2rem);
+  }
+
+  .workspace-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .camera-popup-backdrop {
+    padding: 0.65rem;
   }
 }

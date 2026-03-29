@@ -1,23 +1,11 @@
-import { DEFAULT_REGION, type SignalEvent } from "@signalstack/contracts";
-import {
-  Badge,
-  Panel,
-  SectionTitle,
-  StatusRow
-} from "@signalstack/ui";
-import { formatLagLabel, summarizeLayerStatus } from "@signalstack/policy";
+import { DEFAULT_REGION } from "@signalstack/contracts";
+import { Badge, Panel, SectionTitle } from "@signalstack/ui";
 import { fetchDashboardData } from "../lib/api";
 import { MapViewport } from "../components/map-viewport";
 import { RenoAtcPanel } from "../components/reno-atc-panel";
 import { RenoScannerPanel } from "../components/reno-scanner-panel";
-import { TranscriptFeed } from "../components/transcript-feed";
-import { DetailPanel } from "../components/detail-panel";
 
 export const dynamic = "force-dynamic";
-
-function selectPrimaryEvent(events: SignalEvent[]): SignalEvent | undefined {
-  return events.find((event) => event.sourceType === "aircraft") ?? events[0];
-}
 
 export default async function HomePage() {
   const data = await fetchDashboardData().catch(() => ({
@@ -32,7 +20,6 @@ export default async function HomePage() {
     },
     flightSubscriptions: []
   }));
-  const selectedEvent = selectPrimaryEvent(data.events);
 
   return (
     <main className="shell">
@@ -74,106 +61,11 @@ export default async function HomePage() {
 
       <section className="operations-grid">
         <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Reno Airport ATC"
-              subtitle="Pacific-time transcript view for Reno tower and approach traffic"
-            />
-            <Badge tone="accent">
-              {data.events.filter((event) => event.sourceType === "atc" && event.transcript).length} updates
-            </Badge>
-          </div>
           <RenoAtcPanel events={data.events} />
         </Panel>
 
         <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Reno Police Emergency and Fire Services"
-              subtitle="Live dispatch audio, transcript buckets, and code-word interpretation"
-            />
-            <Badge tone="accent">
-              {data.events.filter((event) => event.sourceType === "scanner" && event.transcript).length} updates
-            </Badge>
-          </div>
           <RenoScannerPanel events={data.events} />
-        </Panel>
-      </section>
-
-      <section className="timeline-grid">
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Future signal modules"
-              subtitle="Scanner, camera correlation, and operator queue planning"
-            />
-            <Badge tone="neutral">Planned next</Badge>
-          </div>
-          <div className="future-module-grid">
-            <article className="future-module-card">
-              <strong>Incident correlation</strong>
-              <p>Stack related radio, camera, aircraft, and weather signals in one operational view.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Operator queue</strong>
-              <p>Pinned incidents, escalation notes, and shift handoff snapshots for the next pass.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Unit movement logic</strong>
-              <p>Track likely dispatch progress and probable route updates once live extraction is tuned.</p>
-            </article>
-            <article className="future-module-card">
-              <strong>Authorized ingest hook</strong>
-              <p>Drop in licensed audio pipelines when live source permissions are finalized.</p>
-            </article>
-          </div>
-        </Panel>
-      </section>
-
-      <section className="content-grid">
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Transcript Feed"
-              subtitle="Raw evidence stays visible beside cleaned interpretation"
-            />
-            <Badge tone="neutral">
-              {data.events.filter((event) => event.sourceType !== "weather").length} signal events
-            </Badge>
-          </div>
-          <TranscriptFeed events={data.events} />
-        </Panel>
-
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Details"
-              subtitle="Selected aircraft, camera, or incident context"
-            />
-            {selectedEvent ? <Badge tone="accent">{selectedEvent.sourceType}</Badge> : null}
-          </div>
-          <DetailPanel event={selectedEvent} />
-        </Panel>
-
-        <Panel>
-          <div className="panel-header">
-            <SectionTitle
-              title="Layer Status"
-              subtitle="Graceful degradation and policy awareness"
-            />
-            <Badge tone="neutral">{summarizeLayerStatus(data.layers)}</Badge>
-          </div>
-          <div className="status-list">
-            {data.layers.map((layer) => (
-              <StatusRow
-                key={layer.adapterId}
-                label={layer.kind}
-                status={layer.status}
-                value={`${formatLagLabel(layer.lagMs)} | ${layer.policyMode}`}
-                detail={layer.lastSuccessAt ?? "No successful poll yet"}
-              />
-            ))}
-          </div>
         </Panel>
       </section>
     </main>

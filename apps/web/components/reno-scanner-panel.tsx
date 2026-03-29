@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SignalEvent } from "@signalstack/contracts";
 import { Badge } from "@signalstack/ui";
-import { LivePanel } from "./live-panel/live-panel";
 
 type RenoScannerPanelProps = {
   events: SignalEvent[];
@@ -160,27 +159,12 @@ export function RenoScannerPanel({ events }: RenoScannerPanelProps) {
 
   return (
     <div className="reno-scanner-panel">
-      <div className="reno-scanner-header">
-        <div>
-          <strong className="reno-scanner-title reno-scanner-title-main">
-            Reno Police Emergency and Fire Services
-          </strong>
-          <p className="reno-scanner-subtitle">
-            Real-time transcription and structured dispatch intelligence with rolling summary windows.
-          </p>
-        </div>
-        <div className="reno-scanner-badges">
-          <Badge tone="neutral">{streamAvailable ? "Audio source ready" : "Feed pending"}</Badge>
-          <Badge tone="neutral">{pipelineActionState === "loading" ? "Syncing..." : "Pipeline control"}</Badge>
-        </div>
-      </div>
-
       <div className="reno-scanner-broadcast-bar">
         <div className="reno-scanner-broadcast-title-wrap">
           <span className="reno-scanner-broadcast-label">Stream</span>
           <strong className="reno-scanner-broadcast-title">Reno Police Emergency and Fire Services</strong>
           <span className="reno-scanner-broadcast-copy">
-            Audio stream {"->"} interim/final transcript {"->"} structured dispatch intelligence cards.
+            Stream and monitor dispatch audio in a simplified operator view.
           </span>
         </div>
         <div className="reno-scanner-control-row">
@@ -206,19 +190,6 @@ export function RenoScannerPanel({ events }: RenoScannerPanelProps) {
 
       <div className="reno-scanner-layout">
         <article className="reno-scanner-audio-card">
-          <div className="reno-scanner-audio-head">
-            <div>
-              <strong>Live dispatch audio</strong>
-              <p className="reno-scanner-audio-copy">
-                Keep this playing while the backend pipeline emits interim and finalized intelligence updates.
-              </p>
-            </div>
-            <div className="reno-scanner-audio-badges">
-              <Badge tone={streamEnabled ? "accent" : "neutral"}>{streamEnabled ? "Pipeline live" : "Pipeline stopped"}</Badge>
-              <Badge tone={isPlaying ? "accent" : "neutral"}>{isPlaying ? "Audio playing" : "Audio paused"}</Badge>
-            </div>
-          </div>
-
           <div className={`reno-scanner-player-box ${streamEnabled ? "is-live" : "is-dimmed"}`}>
             {embedEnabled && radioSrc ? (
               <iframe
@@ -249,8 +220,6 @@ export function RenoScannerPanel({ events }: RenoScannerPanelProps) {
             <span className="reno-scanner-meta">{pipelineMessage}</span>
           </div>
         </article>
-
-        <LivePanel liveAudioActive={streamEnabled && isPlaying} />
       </div>
     </div>
   );
